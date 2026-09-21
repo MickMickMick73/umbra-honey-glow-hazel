@@ -1,14 +1,22 @@
 import { useEffect, useRef } from "react";
-import { Hud, beginRun, requestStartWave, skipCine, startIntro } from "./Hud";
+import { Hud, beginRun, continueRun, leaveYard, requestStartWave, skipCine, startIntro } from "./Hud";
 import { audio } from "./audio";
 import { TOWER_ORDER } from "./config";
 import { sim } from "./sim";
 import { useGame } from "./store";
 import { GameView } from "./view";
+import { flushSave, peekSave, playable, readSettings, writeSettings } from "./persist";
 import type { CineId, SpeedMult, TowerKind } from "./types";
 
 export function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const settings = readSettings();
+    useGame.getState().setMuted(settings.muted);
+    useGame.getState().setSpeed(settings.speed);
+    audio.setMuted(settings.muted);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -20,6 +28,10 @@ export function Game() {
         start: () => boolean;
         upgrade: (id: number) => boolean;
         cine: (id: CineId) => void;
+        save: () => boolean;
+        load: () => void;
+        leave: () => void;
+        peek: () => ReturnType<typeof peekSave>;
       };
     };
     w.__iron = {
@@ -30,10 +42,39 @@ export function Game() {
       },
       upgrade: (id) => sim.upgrade(id),
       cine: (id) => useGame.getState().setCine(id),
+      save: () => {
+        const snap = sim.snapshot();
+        if (!snap) return false;
+        const ok = flushSave(snap);
+        if (ok) useGame.getState().setSavedPulse(Date.now());
+        return ok;
+      },
+      load: () => continueRun(),
+      leave: () => leaveYard(),
+      peek: () => peekSave(),
     };
     return () => {
       delete w.__iron;
       view.dispose();
+    };
+  }, []);
+
+  useEffect(() => {
+    const persistNow = () => {
+      if (!playable(sim.phase)) return;
+      const snap = sim.snapshot();
+      if (snap) flushSave(snap);
+      const state = useGame.getState();
+      writeSettings({ muted: state.muted, speed: state.speed });
+    };
+    const onVis = () => {
+      if (document.visibilityState === "hidden") persistNow();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", persistNow);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", persistNow);
     };
   }, []);
 
@@ -44,6 +85,7 @@ export function Game() {
         const next = !state.muted;
         state.setMuted(next);
         audio.setMuted(next);
+        writeSettings({ muted: next });
         return;
       }
       if (state.cine) {
@@ -55,7 +97,8 @@ export function Game() {
       }
       if (state.phase === "title" && (ev.code === "Enter" || ev.code === "Space")) {
         ev.preventDefault();
-        startIntro();
+        if (peekSave()) continueRun();
+        else startIntro();
         return;
       }
       if (state.phase === "won" || state.phase === "lost") {
@@ -69,6 +112,12 @@ export function Game() {
       if (ev.code === "Escape") {
         state.setPlacing(null);
         state.setSelected(null);
+        return;
+      }
+      if (ev.code === "KeyS" && (ev.metaKey || ev.ctrlKey)) {
+        ev.preventDefault();
+        const snap = sim.snapshot();
+        if (snap && flushSave(snap)) useGame.getState().setSavedPulse(Date.now());
         return;
       }
       if (ev.code === "Space") {
@@ -102,7 +151,9 @@ export function Game() {
       if (ev.code === "KeyF") {
         const cycle: SpeedMult[] = [1, 2, 4];
         const i = cycle.indexOf(state.speed);
-        state.setSpeed(cycle[(i + 1) % cycle.length]!);
+        const next = cycle[(i + 1) % cycle.length]!;
+        state.setSpeed(next);
+        writeSettings({ speed: next });
       }
     };
     window.addEventListener("keydown", onKey);

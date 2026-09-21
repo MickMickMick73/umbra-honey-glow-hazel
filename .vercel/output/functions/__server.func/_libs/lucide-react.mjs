@@ -82,6 +82,34 @@ var createLucideIcon = (iconName, iconNode) => {
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
+var DoorOpen = createLucideIcon("door-open", [
+	["path", {
+		d: "M11 20H2",
+		key: "nlcfvz"
+	}],
+	["path", {
+		d: "M11 4.562v16.157a1 1 0 0 0 1.242.97L19 20V5.562a2 2 0 0 0-1.515-1.94l-4-1A2 2 0 0 0 11 4.561z",
+		key: "au4z13"
+	}],
+	["path", {
+		d: "M11 4H8a2 2 0 0 0-2 2v14",
+		key: "74r1mk"
+	}],
+	["path", {
+		d: "M14 12h.01",
+		key: "1jfl7z"
+	}],
+	["path", {
+		d: "M22 20h-3",
+		key: "vhrsz"
+	}]
+]);
+/**
+* @license lucide-react v0.510.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
 var FastForward = createLucideIcon("fast-forward", [["polygon", {
 	points: "13 19 22 12 13 5 13 19",
 	key: "587y9g"
@@ -113,6 +141,26 @@ var Lock = createLucideIcon("lock", [["rect", {
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
+var Save = createLucideIcon("save", [
+	["path", {
+		d: "M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+		key: "1c8476"
+	}],
+	["path", {
+		d: "M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7",
+		key: "1ydtos"
+	}],
+	["path", {
+		d: "M7 3v4a1 1 0 0 0 1 1h7",
+		key: "t51u73"
+	}]
+]);
+/**
+* @license lucide-react v0.510.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
 var TriangleAlert = createLucideIcon("triangle-alert", [
 	["path", {
 		d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3",
@@ -125,6 +173,38 @@ var TriangleAlert = createLucideIcon("triangle-alert", [
 	["path", {
 		d: "M12 17h.01",
 		key: "p32p05"
+	}]
+]);
+/**
+* @license lucide-react v0.510.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var Trophy = createLucideIcon("trophy", [
+	["path", {
+		d: "M6 9H4.5a2.5 2.5 0 0 1 0-5H6",
+		key: "17hqa7"
+	}],
+	["path", {
+		d: "M18 9h1.5a2.5 2.5 0 0 0 0-5H18",
+		key: "lmptdp"
+	}],
+	["path", {
+		d: "M4 22h16",
+		key: "57wxv0"
+	}],
+	["path", {
+		d: "M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22",
+		key: "1nw9bq"
+	}],
+	["path", {
+		d: "M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22",
+		key: "1np0yb"
+	}],
+	["path", {
+		d: "M18 2H6v7a6 6 0 0 0 12 0V2Z",
+		key: "u46fv3"
 	}]
 ]);
 /**
@@ -174,4 +254,4 @@ var VolumeX = createLucideIcon("volume-x", [
 	}]
 ]);
 //#endregion
-export { FastForward as a, Lock as i, Volume2 as n, TriangleAlert as r, VolumeX as t };
+export { Save as a, DoorOpen as c, TriangleAlert as i, Volume2 as n, Lock as o, Trophy as r, FastForward as s, VolumeX as t };

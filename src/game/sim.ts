@@ -13,6 +13,14 @@ import type {
   TowerKind,
 } from "./types";
 import { audio } from "./audio";
+import {
+  clearSave,
+  playable,
+  queueSave,
+  recordScore,
+  readSettings,
+  type GameSave,
+} from "./persist";
 
 interface SpawnEvent {
   time: number;
@@ -72,9 +80,163 @@ export class Sim {
     this.spawnI = 0;
     this.nextId = 1;
     this.acc = 0;
+    this.expectedInWave = 0;
     this.banner = "Place emplacements. Start the wave when ready.";
     this.bannerT = 3.2;
+    clearSave();
     this.flushHud();
+    this.autosave();
+  }
+
+  snapshot(): GameSave | null {
+    if (!playable(this.phase)) return null;
+    return {
+      version: 1,
+      savedAt: Date.now(),
+      phase: this.phase,
+      gold: this.gold,
+      lives: this.lives,
+      maxLives: this.maxLives,
+      wave: this.wave,
+      waveName: this.waveName,
+      waveTime: this.waveTime,
+      spawning: this.spawning,
+      kills: this.kills,
+      time: this.time,
+      nextId: this.nextId,
+      spawnI: this.spawnI,
+      expectedInWave: this.expectedInWave,
+      towers: [...this.towers.values()].map((t) => ({
+        plotId: t.plotId,
+        kind: t.kind,
+        tier: t.tier,
+        spent: t.spent,
+        yaw: t.yaw,
+        cooldown: t.cooldown,
+      })),
+      enemies: this.enemies.map((e) => ({
+        id: e.id,
+        kind: e.kind,
+        hp: e.hp,
+        maxHp: e.maxHp,
+        speed: e.speed,
+        path: e.path,
+        s: e.s,
+        lane: e.lane,
+        gold: e.gold,
+        radius: e.radius,
+        slowUntil: e.slowUntil,
+        slowMul: e.slowMul,
+        enraged: e.enraged,
+        bob: e.bob,
+      })),
+      spawnQ: this.spawnQ.map((ev) => ({ time: ev.time, kind: ev.kind, path: ev.path })),
+    };
+  }
+
+  hydrate(save: GameSave): boolean {
+    if (save.phase !== "prep" && save.phase !== "combat") return false;
+    this.phase = save.phase;
+    this.gold = Math.max(0, save.gold);
+    this.lives = Math.max(0, save.lives);
+    this.maxLives = Math.max(this.lives, save.maxLives || START_LIVES);
+    this.wave = save.wave;
+    this.waveName = save.waveName || WAVES[Math.min(save.wave, TOTAL_WAVES - 1)]?.name || "";
+    this.waveTime = Math.max(0, save.waveTime);
+    this.spawning = save.phase === "combat" ? save.spawning : false;
+    this.kills = Math.max(0, save.kills);
+    this.time = Math.max(0, save.time);
+    this.trauma = 0;
+    this.acc = 0;
+    this.towers.clear();
+    this.enemies.length = 0;
+    this.projectiles.length = 0;
+    this.beams.length = 0;
+    this.particles.length = 0;
+    this.pulses.length = 0;
+    for (const t of save.towers) {
+      const plot = plotById(t.plotId);
+      if (!plot || this.towers.has(t.plotId)) continue;
+      if (!(t.kind in TOWERS)) continue;
+      this.towers.set(t.plotId, {
+        plotId: t.plotId,
+        kind: t.kind,
+        tier: t.tier,
+        x: plot.x,
+        z: plot.z,
+        cooldown: Math.max(0, t.cooldown),
+        targetId: -1,
+        yaw: t.yaw,
+        spent: Math.max(0, t.spent),
+        kick: 0,
+      });
+    }
+    for (const e of save.enemies) {
+      if (!(e.kind in ENEMIES)) continue;
+      const sample = samplePath(e.path, e.s);
+      if (sample.done) continue;
+      const sideX = Math.cos(sample.heading) * e.lane;
+      const sideZ = -Math.sin(sample.heading) * e.lane;
+      this.enemies.push({
+        id: e.id,
+        kind: e.kind,
+        hp: Math.max(1, e.hp),
+        maxHp: Math.max(1, e.maxHp),
+        speed: e.speed,
+        path: e.path,
+        s: e.s,
+        x: sample.x + sideX,
+        z: sample.z + sideZ,
+        y: 0,
+        heading: sample.heading,
+        lane: e.lane,
+        gold: e.gold,
+        radius: e.radius,
+        slowUntil: e.slowUntil,
+        slowMul: e.slowMul,
+        enraged: e.enraged,
+        flash: 0,
+        bob: e.bob,
+      });
+    }
+    this.spawnQ = save.spawnQ.filter((ev) => ev.kind in ENEMIES);
+    this.spawnI = Math.min(Math.max(0, save.spawnI), this.spawnQ.length);
+    this.expectedInWave = save.expectedInWave;
+    let maxId = this.nextId;
+    for (const t of this.towers.values()) maxId = Math.max(maxId, t.plotId);
+    for (const e of this.enemies) maxId = Math.max(maxId, e.id);
+    this.nextId = Math.max(save.nextId, maxId + 1);
+    this.buildRev++;
+    this.banner = save.phase === "combat" ? `Wave ${this.wave} — back on the line.` : "Yard restored. Fortify.";
+    this.bannerT = 2.6;
+    this.flushHud();
+    return true;
+  }
+
+  parkToTitle() {
+    this.phase = "title";
+    this.banner = null;
+    this.bannerT = 0;
+    this.flushHud();
+  }
+
+  private autosave() {
+    const snap = this.snapshot();
+    if (snap) queueSave(snap);
+  }
+
+  private finishRun(won: boolean) {
+    const settings = readSettings();
+    const run = recordScore({
+      name: settings.callsign,
+      wave: this.wave,
+      kills: this.kills,
+      lives: this.lives,
+      gold: this.gold,
+      won,
+    });
+    useGame.getState().setLastRun(run);
+    clearSave();
   }
 
   step(dt: number, speed: number) {
@@ -122,6 +284,7 @@ export class Sim {
     this.bannerT = 2.4;
     audio.playWave();
     this.flushHud();
+    this.autosave();
     return true;
   }
 
@@ -155,6 +318,7 @@ export class Sim {
     this.buildRev++;
     audio.playPlace();
     this.flushHud();
+    this.autosave();
     return true;
   }
 
@@ -173,6 +337,7 @@ export class Sim {
     this.buildRev++;
     audio.playUpgrade();
     this.flushHud();
+    this.autosave();
     return true;
   }
 
@@ -185,6 +350,7 @@ export class Sim {
     this.buildRev++;
     audio.playSell();
     this.flushHud();
+    this.autosave();
     return true;
   }
 
@@ -231,6 +397,7 @@ export class Sim {
         this.banner = "The depot holds.";
         this.bannerT = 8;
         audio.playWin();
+        this.finishRun(true);
         useGame.getState().setCine("victory");
       } else {
         this.phase = "prep";
@@ -243,6 +410,7 @@ export class Sim {
           this.banner = `Wave ${this.wave} clear. Fortify.`;
         }
         this.bannerT = 2.8;
+        this.autosave();
       }
       this.flushHud();
     }
@@ -324,7 +492,10 @@ export class Sim {
       this.banner = "The depot is overrun.";
       this.bannerT = 8;
       audio.playLose();
+      this.finishRun(false);
       useGame.getState().setCine("defeat");
+    } else {
+      this.autosave();
     }
     this.flushHud();
   }
@@ -674,4 +845,3 @@ function dampAngle(current: number, target: number, maxDelta: number): number {
 }
 
 export const sim = new Sim();
-

@@ -1,13 +1,13 @@
 import { i as __toESM } from "../_runtime.mjs";
 import { n as require_react } from "../_libs/@radix-ui/react-compose-refs+[...].mjs";
 import { v as require_jsx_runtime } from "../_libs/@tanstack/react-router+[...].mjs";
-import { a as FastForward, i as Lock, n as Volume2, t as VolumeX } from "../_libs/lucide-react.mjs";
+import { a as Save, c as DoorOpen, n as Volume2, o as Lock, r as Trophy, s as FastForward, t as VolumeX } from "../_libs/lucide-react.mjs";
 import { t as Slot } from "../_libs/radix-ui__react-slot.mjs";
 import { n as clsx, t as cva } from "../_libs/class-variance-authority+clsx.mjs";
 import { t as twMerge } from "../_libs/tailwind-merge.mjs";
 import { A as Texture, C as RepeatWrapping, D as SphereGeometry, E as Scene, F as Vector3, M as Timer, N as TubeGeometry, O as Sprite, P as Vector2, S as Raycaster, T as SRGBColorSpace, _ as MeshBasicMaterial, a as CatmullRomCurve3, b as OrthographicCamera, c as ConeGeometry, d as DynamicDrawUsage, f as Fog, g as Mesh, h as InstancedMesh, i as BoxGeometry, j as TextureLoader, k as SpriteMaterial, l as CylinderGeometry, m as HemisphereLight, n as WebGLRenderer, o as ClampToEdgeWrapping, p as Group, r as AmbientLight, s as Color, t as mergeGeometries, u as DirectionalLight, v as MeshStandardMaterial, w as RingGeometry, x as PlaneGeometry, y as Object3D } from "../_libs/three.mjs";
 import { t as create } from "../_libs/zustand.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-BL5DA_xB.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-5U2VJMIu.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 function cn(...inputs) {
@@ -1065,6 +1065,264 @@ function cineLocked() {
 function now() {
 	return typeof performance !== "undefined" ? performance.now() : Date.now();
 }
+var DEFAULT_CALLSIGN = "Hand";
+var SAVE_KEY = "iron-redoubt:save";
+var SAVE_BAK = "iron-redoubt:save.bak";
+var SCORES_KEY = "iron-redoubt:scores";
+var SETTINGS_KEY = "iron-redoubt:settings";
+var defaultSettings = {
+	version: 1,
+	muted: false,
+	speed: 1,
+	callsign: ""
+};
+var saveTimer = null;
+var pendingSave = null;
+function canStore() {
+	try {
+		return typeof localStorage !== "undefined";
+	} catch {
+		return false;
+	}
+}
+function readJson(key) {
+	if (!canStore()) return null;
+	try {
+		const raw = localStorage.getItem(key);
+		if (!raw) return null;
+		return JSON.parse(raw);
+	} catch {
+		return null;
+	}
+}
+function writeJson(key, value) {
+	if (!canStore()) return false;
+	try {
+		localStorage.setItem(key, JSON.stringify(value));
+		return true;
+	} catch {
+		return false;
+	}
+}
+function migrateSave(raw) {
+	if (!raw || typeof raw !== "object") return null;
+	const s = raw;
+	if ((typeof s.version === "number" ? s.version : 0) > 1) return null;
+	const phase = s.phase === "combat" ? "combat" : s.phase === "prep" ? "prep" : null;
+	if (!phase) return null;
+	if (typeof s.wave !== "number" || s.wave < 0 || s.wave > 12) return null;
+	const towers = Array.isArray(s.towers) ? s.towers.filter(validTower) : [];
+	const enemies = Array.isArray(s.enemies) ? s.enemies.filter(validEnemy) : [];
+	const spawnQ = Array.isArray(s.spawnQ) ? s.spawnQ.filter(validSpawn) : [];
+	return {
+		version: 1,
+		savedAt: typeof s.savedAt === "number" ? s.savedAt : Date.now(),
+		phase,
+		gold: num(s.gold, 0),
+		lives: num(s.lives, 0),
+		maxLives: num(s.maxLives, 20),
+		wave: s.wave,
+		waveName: typeof s.waveName === "string" ? s.waveName : "",
+		waveTime: num(s.waveTime, 0),
+		spawning: Boolean(s.spawning),
+		kills: num(s.kills, 0),
+		time: num(s.time, 0),
+		nextId: Math.max(1, num(s.nextId, 1)),
+		spawnI: Math.max(0, num(s.spawnI, 0)),
+		expectedInWave: num(s.expectedInWave, 0),
+		towers,
+		enemies,
+		spawnQ
+	};
+}
+function num(v, d) {
+	return typeof v === "number" && Number.isFinite(v) ? v : d;
+}
+function validTower(t) {
+	if (!t || typeof t !== "object") return false;
+	const x = t;
+	return typeof x.plotId === "number" && x.kind in TOWERS && (x.tier === 0 || x.tier === 1 || x.tier === 2) && typeof x.spent === "number";
+}
+function validEnemy(e) {
+	if (!e || typeof e !== "object") return false;
+	const x = e;
+	return typeof x.id === "number" && x.kind in ENEMIES && typeof x.s === "number" && x.s >= 0;
+}
+function validSpawn(s) {
+	if (!s || typeof s !== "object") return false;
+	const x = s;
+	return typeof x.time === "number" && x.kind in ENEMIES && (x.path === 0 || x.path === 1);
+}
+function readSave() {
+	const primary = migrateSave(readJson(SAVE_KEY));
+	if (primary) return primary;
+	return migrateSave(readJson(SAVE_BAK));
+}
+function peekSave() {
+	const s = readSave();
+	if (!s) return null;
+	return {
+		savedAt: s.savedAt,
+		phase: s.phase,
+		wave: s.wave,
+		gold: s.gold,
+		lives: s.lives,
+		kills: s.kills,
+		towers: s.towers.length
+	};
+}
+function writeSave(data) {
+	if (data.phase !== "prep" && data.phase !== "combat") return false;
+	const blob = {
+		...data,
+		version: 1,
+		savedAt: Date.now()
+	};
+	if (!canStore()) return false;
+	try {
+		const prev = localStorage.getItem(SAVE_KEY);
+		if (prev) localStorage.setItem(SAVE_BAK, prev);
+		localStorage.setItem(SAVE_KEY, JSON.stringify(blob));
+		return true;
+	} catch {
+		return false;
+	}
+}
+function queueSave(data) {
+	pendingSave = data;
+	if (saveTimer != null) return;
+	saveTimer = setTimeout(() => {
+		saveTimer = null;
+		if (pendingSave) {
+			writeSave(pendingSave);
+			pendingSave = null;
+		}
+	}, 900);
+}
+function flushSave(data) {
+	if (saveTimer != null) {
+		clearTimeout(saveTimer);
+		saveTimer = null;
+	}
+	const next = data ?? pendingSave;
+	pendingSave = null;
+	if (!next) return false;
+	return writeSave(next);
+}
+function clearSave() {
+	if (saveTimer != null) {
+		clearTimeout(saveTimer);
+		saveTimer = null;
+	}
+	pendingSave = null;
+	if (!canStore()) return;
+	try {
+		localStorage.removeItem(SAVE_KEY);
+		localStorage.removeItem(SAVE_BAK);
+	} catch {}
+}
+function computeScore(p) {
+	return p.kills * 12 + p.wave * 80 + p.lives * 40 + Math.floor(Math.max(0, p.gold) * .2) + (p.won ? 600 : 0);
+}
+function cleanName(raw) {
+	return raw.replace(/[^\p{L}\p{N} \-']/gu, "").replace(/\s+/g, " ").trim().slice(0, 16);
+}
+function readScores() {
+	const rows = readJson(SCORES_KEY);
+	if (!Array.isArray(rows)) return [];
+	return rows.filter((r) => {
+		if (!r || typeof r !== "object") return false;
+		const x = r;
+		return typeof x.id === "string" && typeof x.score === "number" && typeof x.wave === "number";
+	}).map((r) => ({
+		id: r.id,
+		name: cleanName(r.name) || "Hand",
+		score: r.score,
+		wave: r.wave,
+		kills: r.kills ?? 0,
+		lives: r.lives ?? 0,
+		gold: r.gold ?? 0,
+		won: Boolean(r.won),
+		at: typeof r.at === "number" ? r.at : 0
+	})).sort(byScore).slice(0, 10);
+}
+function byScore(a, b) {
+	if (b.score !== a.score) return b.score - a.score;
+	if (Number(b.won) !== Number(a.won)) return Number(b.won) - Number(a.won);
+	return b.at - a.at;
+}
+function recordScore(input) {
+	const name = cleanName(input.name ?? "") || "Hand";
+	const row = {
+		id: `s${Date.now().toString(36)}${Math.floor(Math.random() * 36).toString(36)}`,
+		name,
+		score: computeScore(input),
+		wave: input.wave,
+		kills: input.kills,
+		lives: input.lives,
+		gold: input.gold,
+		won: input.won,
+		at: Date.now()
+	};
+	const board = [...readScores(), row].sort(byScore).slice(0, 10);
+	writeJson(SCORES_KEY, board);
+	const rankIndex = board.findIndex((r) => r.id === row.id);
+	return {
+		...row,
+		rank: rankIndex >= 0 ? rankIndex + 1 : null
+	};
+}
+function renameScore(id, name) {
+	const next = cleanName(name) || "Hand";
+	const board = readScores().map((r) => r.id === id ? {
+		...r,
+		name: next
+	} : r);
+	writeJson(SCORES_KEY, board);
+	return board;
+}
+function readSettings() {
+	const raw = readJson(SETTINGS_KEY);
+	if (!raw || typeof raw !== "object") return { ...defaultSettings };
+	const speed = raw.speed === 2 || raw.speed === 4 ? raw.speed : 1;
+	return {
+		version: 1,
+		muted: Boolean(raw.muted),
+		speed,
+		callsign: typeof raw.callsign === "string" ? cleanName(raw.callsign) : ""
+	};
+}
+function writeSettings(patch) {
+	const next = {
+		...readSettings(),
+		...patch,
+		version: 1
+	};
+	if (typeof next.callsign === "string") next.callsign = cleanName(next.callsign);
+	writeJson(SETTINGS_KEY, next);
+	return next;
+}
+function playable(phase) {
+	return phase === "prep" || phase === "combat";
+}
+function formatWhen(at) {
+	if (!at) return "";
+	try {
+		return new Date(at).toLocaleDateString(void 0, {
+			day: "numeric",
+			month: "short"
+		});
+	} catch {
+		return "";
+	}
+}
+function saveLabel(peek) {
+	const wave = peek.phase === "combat" ? peek.wave : Math.min(12, peek.wave + 1);
+	const guns = peek.towers === 1 ? "1 gun" : `${peek.towers} guns`;
+	if (peek.phase === "combat") return `Wave ${wave} incoming · ${guns}`;
+	if (peek.wave <= 0) return `Yard ready · ${guns}`;
+	return `After wave ${peek.wave} · ${guns} · ${peek.gold} scrip`;
+}
 var PATHS = [[
 	{
 		x: -1.4,
@@ -1295,12 +1553,16 @@ var useGame = create((set) => ({
 	selectedPlotId: null,
 	hoveredPlotId: null,
 	cine: null,
+	lastRun: null,
+	savedPulse: 0,
 	setSpeed: (speed) => set({ speed }),
 	setMuted: (muted) => set({ muted }),
 	setPlacing: (placing) => set({ placing }),
 	setSelected: (selectedPlotId) => set({ selectedPlotId }),
 	setHovered: (hoveredPlotId) => set({ hoveredPlotId }),
 	setCine: (cine) => set({ cine }),
+	setLastRun: (lastRun) => set({ lastRun }),
+	setSavedPulse: (savedPulse) => set({ savedPulse }),
 	applyHud: (snap) => set(snap)
 }));
 var Sim = class {
@@ -1352,9 +1614,161 @@ var Sim = class {
 		this.spawnI = 0;
 		this.nextId = 1;
 		this.acc = 0;
+		this.expectedInWave = 0;
 		this.banner = "Place emplacements. Start the wave when ready.";
 		this.bannerT = 3.2;
+		clearSave();
 		this.flushHud();
+		this.autosave();
+	}
+	snapshot() {
+		if (!playable(this.phase)) return null;
+		return {
+			version: 1,
+			savedAt: Date.now(),
+			phase: this.phase,
+			gold: this.gold,
+			lives: this.lives,
+			maxLives: this.maxLives,
+			wave: this.wave,
+			waveName: this.waveName,
+			waveTime: this.waveTime,
+			spawning: this.spawning,
+			kills: this.kills,
+			time: this.time,
+			nextId: this.nextId,
+			spawnI: this.spawnI,
+			expectedInWave: this.expectedInWave,
+			towers: [...this.towers.values()].map((t) => ({
+				plotId: t.plotId,
+				kind: t.kind,
+				tier: t.tier,
+				spent: t.spent,
+				yaw: t.yaw,
+				cooldown: t.cooldown
+			})),
+			enemies: this.enemies.map((e) => ({
+				id: e.id,
+				kind: e.kind,
+				hp: e.hp,
+				maxHp: e.maxHp,
+				speed: e.speed,
+				path: e.path,
+				s: e.s,
+				lane: e.lane,
+				gold: e.gold,
+				radius: e.radius,
+				slowUntil: e.slowUntil,
+				slowMul: e.slowMul,
+				enraged: e.enraged,
+				bob: e.bob
+			})),
+			spawnQ: this.spawnQ.map((ev) => ({
+				time: ev.time,
+				kind: ev.kind,
+				path: ev.path
+			}))
+		};
+	}
+	hydrate(save) {
+		if (save.phase !== "prep" && save.phase !== "combat") return false;
+		this.phase = save.phase;
+		this.gold = Math.max(0, save.gold);
+		this.lives = Math.max(0, save.lives);
+		this.maxLives = Math.max(this.lives, save.maxLives || 20);
+		this.wave = save.wave;
+		this.waveName = save.waveName || WAVES[Math.min(save.wave, 11)]?.name || "";
+		this.waveTime = Math.max(0, save.waveTime);
+		this.spawning = save.phase === "combat" ? save.spawning : false;
+		this.kills = Math.max(0, save.kills);
+		this.time = Math.max(0, save.time);
+		this.trauma = 0;
+		this.acc = 0;
+		this.towers.clear();
+		this.enemies.length = 0;
+		this.projectiles.length = 0;
+		this.beams.length = 0;
+		this.particles.length = 0;
+		this.pulses.length = 0;
+		for (const t of save.towers) {
+			const plot = plotById(t.plotId);
+			if (!plot || this.towers.has(t.plotId)) continue;
+			if (!(t.kind in TOWERS)) continue;
+			this.towers.set(t.plotId, {
+				plotId: t.plotId,
+				kind: t.kind,
+				tier: t.tier,
+				x: plot.x,
+				z: plot.z,
+				cooldown: Math.max(0, t.cooldown),
+				targetId: -1,
+				yaw: t.yaw,
+				spent: Math.max(0, t.spent),
+				kick: 0
+			});
+		}
+		for (const e of save.enemies) {
+			if (!(e.kind in ENEMIES)) continue;
+			const sample = samplePath(e.path, e.s);
+			if (sample.done) continue;
+			const sideX = Math.cos(sample.heading) * e.lane;
+			const sideZ = -Math.sin(sample.heading) * e.lane;
+			this.enemies.push({
+				id: e.id,
+				kind: e.kind,
+				hp: Math.max(1, e.hp),
+				maxHp: Math.max(1, e.maxHp),
+				speed: e.speed,
+				path: e.path,
+				s: e.s,
+				x: sample.x + sideX,
+				z: sample.z + sideZ,
+				y: 0,
+				heading: sample.heading,
+				lane: e.lane,
+				gold: e.gold,
+				radius: e.radius,
+				slowUntil: e.slowUntil,
+				slowMul: e.slowMul,
+				enraged: e.enraged,
+				flash: 0,
+				bob: e.bob
+			});
+		}
+		this.spawnQ = save.spawnQ.filter((ev) => ev.kind in ENEMIES);
+		this.spawnI = Math.min(Math.max(0, save.spawnI), this.spawnQ.length);
+		this.expectedInWave = save.expectedInWave;
+		let maxId = this.nextId;
+		for (const t of this.towers.values()) maxId = Math.max(maxId, t.plotId);
+		for (const e of this.enemies) maxId = Math.max(maxId, e.id);
+		this.nextId = Math.max(save.nextId, maxId + 1);
+		this.buildRev++;
+		this.banner = save.phase === "combat" ? `Wave ${this.wave} — back on the line.` : "Yard restored. Fortify.";
+		this.bannerT = 2.6;
+		this.flushHud();
+		return true;
+	}
+	parkToTitle() {
+		this.phase = "title";
+		this.banner = null;
+		this.bannerT = 0;
+		this.flushHud();
+	}
+	autosave() {
+		const snap = this.snapshot();
+		if (snap) queueSave(snap);
+	}
+	finishRun(won) {
+		const run = recordScore({
+			name: readSettings().callsign,
+			wave: this.wave,
+			kills: this.kills,
+			lives: this.lives,
+			gold: this.gold,
+			won
+		});
+		useGame.getState().setLastRun(run);
+		clearSave();
 	}
 	step(dt, speed) {
 		if (this.phase === "title" || this.phase === "won" || this.phase === "lost") {
@@ -1404,6 +1818,7 @@ var Sim = class {
 		this.bannerT = 2.4;
 		audio.playWave();
 		this.flushHud();
+		this.autosave();
 		return true;
 	}
 	place(plotId, kind) {
@@ -1436,6 +1851,7 @@ var Sim = class {
 		this.buildRev++;
 		audio.playPlace();
 		this.flushHud();
+		this.autosave();
 		return true;
 	}
 	upgrade(plotId) {
@@ -1453,6 +1869,7 @@ var Sim = class {
 		this.buildRev++;
 		audio.playUpgrade();
 		this.flushHud();
+		this.autosave();
 		return true;
 	}
 	sell(plotId) {
@@ -1464,6 +1881,7 @@ var Sim = class {
 		this.buildRev++;
 		audio.playSell();
 		this.flushHud();
+		this.autosave();
 		return true;
 	}
 	sellValue(plotId) {
@@ -1502,6 +1920,7 @@ var Sim = class {
 				this.banner = "The depot holds.";
 				this.bannerT = 8;
 				audio.playWin();
+				this.finishRun(true);
 				useGame.getState().setCine("victory");
 			} else {
 				this.phase = "prep";
@@ -1511,6 +1930,7 @@ var Sim = class {
 				if (unlocked.length) this.banner = `${unlocked.map((k) => TOWERS[k].name).join(" · ")} ready on the line.`;
 				else this.banner = `Wave ${this.wave} clear. Fortify.`;
 				this.bannerT = 2.8;
+				this.autosave();
 			}
 			this.flushHud();
 		}
@@ -1576,8 +1996,9 @@ var Sim = class {
 			this.banner = "The depot is overrun.";
 			this.bannerT = 8;
 			audio.playLose();
+			this.finishRun(false);
 			useGame.getState().setCine("defeat");
-		}
+		} else this.autosave();
 		this.flushHud();
 	}
 	updateTowers(dt) {
@@ -1904,6 +2325,7 @@ function startIntro() {
 	audio.setMuted(useGame.getState().muted);
 	useGame.getState().setPlacing(null);
 	useGame.getState().setSelected(null);
+	useGame.getState().setLastRun(null);
 	useGame.getState().setCine("intro");
 }
 function beginRun() {
@@ -1911,8 +2333,29 @@ function beginRun() {
 	audio.setMuted(useGame.getState().muted);
 	useGame.getState().setPlacing(null);
 	useGame.getState().setSelected(null);
+	useGame.getState().setLastRun(null);
 	useGame.getState().setCine(null);
 	sim.reset();
+}
+function continueRun() {
+	audio.unlock();
+	audio.setMuted(useGame.getState().muted);
+	useGame.getState().setPlacing(null);
+	useGame.getState().setSelected(null);
+	useGame.getState().setCine(null);
+	const save = readSave();
+	if (!save || !sim.hydrate(save)) sim.reset();
+}
+function leaveYard() {
+	const snap = sim.snapshot();
+	if (snap) {
+		flushSave(snap);
+		useGame.getState().setSavedPulse(Date.now());
+	}
+	useGame.getState().setPlacing(null);
+	useGame.getState().setSelected(null);
+	useGame.getState().setCine(null);
+	sim.parkToTitle();
 }
 function skipCine() {
 	const id = useGame.getState().cine;
@@ -1944,6 +2387,50 @@ function finishCine(id) {
 	setCine(null);
 }
 function TitleScreen() {
+	const [pane, setPane] = (0, import_react.useState)("play");
+	const [tick, setTick] = (0, import_react.useState)(0);
+	const peek = peekSave();
+	if (pane === "ledger") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Cinematic, {
+		src: "/art/title.jpg",
+		align: "center",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LedgerCard, {
+			onBack: () => setPane("play"),
+			onPosted: () => setTick((n) => n + 1)
+		})
+	});
+	if (pane === "confirm") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Cinematic, {
+		src: "/art/title.jpg",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "pointer-events-auto w-full max-w-sm rounded-[var(--radius-xl)] border border-border bg-bg/92 p-6 shadow-[0_24px_60px_rgba(0,0,0,0.45)]",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "text-xs font-medium tracking-[0.22em] text-muted uppercase",
+					children: "New yard"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+					className: "mt-2 font-display text-3xl tracking-tight text-fg",
+					children: "Replace the saved campaign?"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "mt-3 text-sm leading-relaxed text-muted",
+					children: "Your posted marks stay on the ledger. The yard on the line will be overwritten."
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "mt-6 flex flex-col gap-2",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+						className: "h-12 w-full font-display text-lg tracking-wide",
+						onClick: startIntro,
+						children: "Start fresh"
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+						variant: "outline",
+						className: "h-11 w-full",
+						onClick: () => setPane("play"),
+						children: "Keep the save"
+					})]
+				})
+			]
+		})
+	});
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Cinematic, {
 		src: "/art/title.jpg",
 		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -1970,13 +2457,36 @@ function TitleScreen() {
 					children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Place on pads — corners cover more track." }),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Seven guns. Later waves open the heavy ones." }),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Splash the packs. Slow the ironhides. Snipe the wagon." })
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "The yard autosaves. Marks post to the ledger." })
 					]
 				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
-					className: "mt-6 h-12 w-full max-w-sm rounded-[var(--radius-md)] font-display text-lg tracking-wide",
-					onClick: startIntro,
-					children: "Hold the line"
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "mt-6 flex w-full max-w-sm flex-col gap-2",
+					children: [
+						peek ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+							className: "h-12 w-full rounded-[var(--radius-md)] font-display text-lg tracking-wide",
+							onClick: continueRun,
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "flex flex-col items-center leading-tight",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Continue" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "text-xs font-sans font-medium tracking-normal opacity-80",
+									children: saveLabel(peek)
+								})]
+							})
+						}) : null,
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+							variant: peek ? "outline" : "default",
+							className: "h-12 w-full rounded-[var(--radius-md)] font-display text-lg tracking-wide",
+							onClick: () => peek ? setPane("confirm") : startIntro(),
+							children: peek ? "New yard" : "Hold the line"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
+							variant: "ghost",
+							className: "h-11 w-full",
+							onClick: () => setPane("ledger"),
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trophy, { className: "size-4" }), "The ledger"]
+						})
+					]
 				})
 			]
 		})
@@ -1987,12 +2497,28 @@ function EndScreen() {
 	const wave = useGame((s) => s.wave);
 	const kills = useGame((s) => s.kills);
 	const lives = useGame((s) => s.lives);
+	const lastRun = useGame((s) => s.lastRun);
+	const [name, setName] = (0, import_react.useState)(() => lastRun?.name || readSettings().callsign || "");
+	const [board, setBoard] = (0, import_react.useState)(() => readScores());
 	const won = phase === "won";
+	const commitName = (value) => {
+		const next = cleanName(value) || "Hand";
+		setName(next);
+		writeSettings({ callsign: next });
+		if (lastRun) {
+			const rows = renameScore(lastRun.id, next);
+			setBoard(rows);
+			useGame.getState().setLastRun({
+				...lastRun,
+				name: next
+			});
+		}
+	};
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Cinematic, {
 		src: won ? "/art/victory.jpg" : "/art/defeat.jpg",
 		align: "center",
 		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "pointer-events-auto w-full max-w-sm rounded-[var(--radius-xl)] border border-border bg-bg/92 p-6 shadow-[0_24px_60px_rgba(0,0,0,0.45)]",
+			className: "pointer-events-auto w-full max-w-md rounded-[var(--radius-xl)] border border-border bg-bg/92 p-6 shadow-[0_24px_60px_rgba(0,0,0,0.45)]",
 			children: [
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "text-xs font-medium tracking-[0.22em] text-muted uppercase",
@@ -2019,14 +2545,140 @@ function EndScreen() {
 						})
 					]
 				}),
+				lastRun ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "mt-4 rounded-[var(--radius-sm)] bg-surface-2 px-3 py-3",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-end justify-between gap-3",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "text-xs tracking-[0.16em] text-muted uppercase",
+							children: "Mark"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "font-display text-3xl tabular-nums text-fg",
+							children: lastRun.score
+						})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "text-right text-sm text-muted",
+							children: lastRun.rank ? `${ordinal(lastRun.rank)} on the post` : "Off the post"
+						})]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+						className: "mt-3 block",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "text-xs tracking-[0.16em] text-muted uppercase",
+							children: "Callsign"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							value: name,
+							maxLength: 16,
+							autoComplete: "off",
+							spellCheck: false,
+							className: "mt-1 h-11 w-full rounded-[var(--radius-sm)] border border-border bg-surface px-3 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-accent/60",
+							onChange: (e) => setName(e.target.value),
+							onBlur: (e) => commitName(e.target.value),
+							onKeyDown: (e) => {
+								if (e.key === "Enter") e.currentTarget.blur();
+							}
+						})]
+					})]
+				}) : null,
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ScoreTable, {
+					rows: board,
+					highlight: lastRun?.id,
+					compact: true
+				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
-					className: "mt-6 h-12 w-full rounded-[var(--radius-md)] font-display text-lg tracking-wide",
+					className: "mt-5 h-12 w-full rounded-[var(--radius-md)] font-display text-lg tracking-wide",
 					onClick: beginRun,
 					children: "Fight again"
 				})
 			]
 		})
 	});
+}
+function LedgerCard({ onBack, onPosted }) {
+	const settings = readSettings();
+	const [name, setName] = (0, import_react.useState)(settings.callsign);
+	const rows = readScores();
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "pointer-events-auto w-full max-w-md rounded-[var(--radius-xl)] border border-border bg-bg/92 p-6 shadow-[0_24px_60px_rgba(0,0,0,0.45)]",
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "text-xs font-medium tracking-[0.22em] text-muted uppercase",
+				children: "The ledger"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+				className: "mt-2 font-display text-3xl tracking-tight text-fg",
+				children: "Marks on the post"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ScoreTable, { rows }),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+				className: "mt-4 block",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-xs tracking-[0.16em] text-muted uppercase",
+					children: "Your callsign"
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+					value: name,
+					maxLength: 16,
+					autoComplete: "off",
+					spellCheck: false,
+					placeholder: DEFAULT_CALLSIGN,
+					className: "mt-1 h-11 w-full rounded-[var(--radius-sm)] border border-border bg-surface px-3 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-accent/60",
+					onChange: (e) => setName(e.target.value),
+					onBlur: (e) => writeSettings({ callsign: cleanName(e.target.value) })
+				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+				variant: "outline",
+				className: "mt-4 h-11 w-full",
+				onClick: onBack,
+				children: "Back"
+			})
+		]
+	});
+}
+function ScoreTable({ rows, highlight, compact }) {
+	if (!rows.length) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+		className: "mt-4 rounded-[var(--radius-sm)] bg-surface-2 px-3 py-4 text-sm text-muted",
+		children: "No marks on the post yet. Hold a wave and your name goes up."
+	});
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ol", {
+		className: cn("mt-4 space-y-1", compact && "max-h-40 overflow-y-auto"),
+		children: rows.map((r, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", {
+			className: cn("grid grid-cols-[1.5rem_1fr_auto] items-baseline gap-2 rounded-[var(--radius-xs)] px-2 py-1.5 text-sm", r.id === highlight ? "bg-surface-2" : ""),
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "font-display tabular-nums text-muted",
+					children: i + 1
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+					className: "min-w-0 truncate text-fg",
+					children: [
+						r.name,
+						r.won ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "ml-2 text-xs text-ok",
+							children: "Held"
+						}) : null,
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+							className: "ml-2 text-xs text-muted",
+							children: ["W", r.wave]
+						})
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+					className: "font-display tabular-nums text-fg",
+					children: [r.score, /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "ml-2 text-xs font-sans text-faint",
+						children: formatWhen(r.at)
+					})]
+				})
+			]
+		}, r.id))
+	});
+}
+function ordinal(n) {
+	const v = n % 100;
+	if (v >= 11 && v <= 13) return `${n}th`;
+	if (n % 10 === 1) return `${n}st`;
+	if (n % 10 === 2) return `${n}nd`;
+	if (n % 10 === 3) return `${n}rd`;
+	return `${n}th`;
 }
 function CineOverlay({ id }) {
 	const meta = CINE[id];
@@ -2121,6 +2773,14 @@ function PlayHud() {
 	const muted = useGame((s) => s.muted);
 	const placing = useGame((s) => s.placing);
 	const selectedPlotId = useGame((s) => s.selectedPlotId);
+	const savedPulse = useGame((s) => s.savedPulse);
+	const [now, setNow] = (0, import_react.useState)(() => Date.now());
+	(0, import_react.useEffect)(() => {
+		if (!savedPulse) return;
+		const t = window.setTimeout(() => setNow(Date.now()), 1800);
+		return () => window.clearTimeout(t);
+	}, [savedPulse]);
+	const showSaved = savedPulse > 0 && now - savedPulse < 1600;
 	const upcoming = WAVES[wave];
 	const preview = upcoming ? summarize(upcoming) : "";
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -2132,44 +2792,69 @@ function PlayHud() {
 					className: "flex items-start justify-between gap-2",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "pointer-events-auto flex flex-wrap gap-2",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Chip, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-							src: "/art/hud/heart.jpg",
-							alt: "",
-							className: "size-5 rounded-full object-cover"
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-							className: "tabular-nums",
-							children: [lives, /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-								className: "text-muted",
-								children: ["/", maxLives]
-							})]
-						})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Chip, { children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-								src: "/art/hud/coin.jpg",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Chip, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+								src: "/art/hud/heart.jpg",
 								alt: "",
 								className: "size-5 rounded-full object-cover"
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "text-xs tracking-[0.14em] text-muted",
-								children: "SCRIP"
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 								className: "tabular-nums",
-								children: gold
-							})
-						] })]
+								children: [lives, /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+									className: "text-muted",
+									children: ["/", maxLives]
+								})]
+							})] }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Chip, { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+									src: "/art/hud/coin.jpg",
+									alt: "",
+									className: "size-5 rounded-full object-cover"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "text-xs tracking-[0.14em] text-muted",
+									children: "SCRIP"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "tabular-nums",
+									children: gold
+								})
+							] }),
+							showSaved ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Chip, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Save, { className: "size-3.5 text-ok" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "text-xs tracking-wide text-ok",
+								children: "Saved"
+							})] }) : null
+						]
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "pointer-events-auto flex gap-2",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SpeedControl, { speed }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
-							variant: "outline",
-							size: "icon-sm",
-							"aria-label": muted ? "Unmute" : "Mute",
-							onClick: () => {
-								const next = !muted;
-								useGame.getState().setMuted(next);
-								audio.setMuted(next);
-							},
-							children: muted ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(VolumeX, { className: "size-4" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Volume2, { className: "size-4" })
-						})]
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SpeedControl, { speed }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+								variant: "outline",
+								size: "icon-sm",
+								"aria-label": "Save yard",
+								onClick: manualSave,
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Save, { className: "size-4" })
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+								variant: "outline",
+								size: "icon-sm",
+								"aria-label": "Save and leave",
+								onClick: leaveYard,
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DoorOpen, { className: "size-4" })
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+								variant: "outline",
+								size: "icon-sm",
+								"aria-label": muted ? "Unmute" : "Mute",
+								onClick: () => {
+									const next = !muted;
+									useGame.getState().setMuted(next);
+									audio.setMuted(next);
+									writeSettings({ muted: next });
+								},
+								children: muted ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(VolumeX, { className: "size-4" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Volume2, { className: "size-4" })
+							})
+						]
 					})]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "pointer-events-none text-center",
@@ -2240,6 +2925,11 @@ function PlayHud() {
 		]
 	});
 }
+function manualSave() {
+	const snap = sim.snapshot();
+	if (!snap) return;
+	if (flushSave(snap)) useGame.getState().setSavedPulse(Date.now());
+}
 function Chip({ children }) {
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 		className: "inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-border bg-bg/85 px-2.5 text-sm font-medium text-fg",
@@ -2256,7 +2946,10 @@ function SpeedControl({ speed }) {
 		].map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 			type: "button",
 			className: cn("flex h-9 min-w-9 items-center justify-center px-2 text-xs font-medium tabular-nums", speed === s ? "bg-fg text-bg" : "text-muted hover:text-fg"),
-			onClick: () => useGame.getState().setSpeed(s),
+			onClick: () => {
+				useGame.getState().setSpeed(s);
+				writeSettings({ speed: s });
+			},
 			"aria-label": s === 4 ? "Fast forward" : `${s} times speed`,
 			children: s === 4 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FastForward, { className: "size-3.5" }) : `${s}×`
 		}, s))
@@ -3471,6 +4164,12 @@ var GameView = class {
 function Game() {
 	const canvasRef = (0, import_react.useRef)(null);
 	(0, import_react.useEffect)(() => {
+		const settings = readSettings();
+		useGame.getState().setMuted(settings.muted);
+		useGame.getState().setSpeed(settings.speed);
+		audio.setMuted(settings.muted);
+	}, []);
+	(0, import_react.useEffect)(() => {
 		const canvas = canvasRef.current;
 		if (!canvas) return;
 		const view = new GameView(canvas);
@@ -3482,11 +4181,42 @@ function Game() {
 				return true;
 			},
 			upgrade: (id) => sim.upgrade(id),
-			cine: (id) => useGame.getState().setCine(id)
+			cine: (id) => useGame.getState().setCine(id),
+			save: () => {
+				const snap = sim.snapshot();
+				if (!snap) return false;
+				const ok = flushSave(snap);
+				if (ok) useGame.getState().setSavedPulse(Date.now());
+				return ok;
+			},
+			load: () => continueRun(),
+			leave: () => leaveYard(),
+			peek: () => peekSave()
 		};
 		return () => {
 			delete w.__iron;
 			view.dispose();
+		};
+	}, []);
+	(0, import_react.useEffect)(() => {
+		const persistNow = () => {
+			if (!playable(sim.phase)) return;
+			const snap = sim.snapshot();
+			if (snap) flushSave(snap);
+			const state = useGame.getState();
+			writeSettings({
+				muted: state.muted,
+				speed: state.speed
+			});
+		};
+		const onVis = () => {
+			if (document.visibilityState === "hidden") persistNow();
+		};
+		document.addEventListener("visibilitychange", onVis);
+		window.addEventListener("pagehide", persistNow);
+		return () => {
+			document.removeEventListener("visibilitychange", onVis);
+			window.removeEventListener("pagehide", persistNow);
 		};
 	}, []);
 	(0, import_react.useEffect)(() => {
@@ -3496,6 +4226,7 @@ function Game() {
 				const next = !state.muted;
 				state.setMuted(next);
 				audio.setMuted(next);
+				writeSettings({ muted: next });
 				return;
 			}
 			if (state.cine) {
@@ -3507,7 +4238,8 @@ function Game() {
 			}
 			if (state.phase === "title" && (ev.code === "Enter" || ev.code === "Space")) {
 				ev.preventDefault();
-				startIntro();
+				if (peekSave()) continueRun();
+				else startIntro();
 				return;
 			}
 			if (state.phase === "won" || state.phase === "lost") {
@@ -3521,6 +4253,12 @@ function Game() {
 			if (ev.code === "Escape") {
 				state.setPlacing(null);
 				state.setSelected(null);
+				return;
+			}
+			if (ev.code === "KeyS" && (ev.metaKey || ev.ctrlKey)) {
+				ev.preventDefault();
+				const snap = sim.snapshot();
+				if (snap && flushSave(snap)) useGame.getState().setSavedPulse(Date.now());
 				return;
 			}
 			if (ev.code === "Space") {
@@ -3554,8 +4292,9 @@ function Game() {
 					2,
 					4
 				];
-				const i = cycle.indexOf(state.speed);
-				state.setSpeed(cycle[(i + 1) % cycle.length]);
+				const next = cycle[(cycle.indexOf(state.speed) + 1) % cycle.length];
+				state.setSpeed(next);
+				writeSettings({ speed: next });
 			}
 		};
 		window.addEventListener("keydown", onKey);
