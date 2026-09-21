@@ -30,6 +30,23 @@ function isoFacing(yaw: number) {
   return Math.sin(yaw) - Math.cos(yaw) >= 0 ? 1 : -1;
 }
 
+const _camRight = new THREE.Vector3();
+const _camUp = new THREE.Vector3();
+
+/**
+ * A world-space ground yaw, projected onto this orthographic camera's fixed
+ * screen axes, so a camera-facing sprite can roll (SpriteMaterial.rotation)
+ * to visibly track a direction instead of only mirroring left/right.
+ */
+function yawToScreenRoll(camera: THREE.Camera, yaw: number) {
+  camera.matrixWorld.extractBasis(_camRight, _camUp, _dir);
+  const dirX = Math.sin(yaw);
+  const dirZ = Math.cos(yaw);
+  const sx = dirX * _camRight.x + dirZ * _camRight.z;
+  const sy = dirX * _camUp.x + dirZ * _camUp.z;
+  return Math.atan2(sy, sx);
+}
+
 export class GameView {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -566,10 +583,11 @@ export class GameView {
         mesh,
         this.kit.maps.guns[tower.kind],
         frame,
-        isoFacing(tower.yaw),
+        1,
         size.w * grow * rec,
         size.h * grow * (firing && tower.kick > 0.14 ? 1.1 : 1),
         firing ? 0xffe8d0 : 0xffffff,
+        yawToScreenRoll(this.camera, tower.yaw),
       );
       const body = mesh.getObjectByName("body") as THREE.Sprite | undefined;
       if (body && !this.reduced) {
@@ -614,6 +632,7 @@ export class GameView {
     w: number,
     h: number,
     tint: number,
+    roll = 0,
   ) {
     const spr = group.getObjectByName("body") as THREE.Sprite | undefined;
     if (!spr) return;
@@ -624,6 +643,7 @@ export class GameView {
       mat.needsUpdate = true;
     }
     mat.color.setHex(tint);
+    mat.rotation = roll;
     spr.scale.set(w * facing, h, 1);
   }
 

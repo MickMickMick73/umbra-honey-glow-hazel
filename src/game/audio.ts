@@ -1,5 +1,30 @@
 const TAU = Math.PI * 2;
 
+type SampleName =
+  | "gunner"
+  | "cannon"
+  | "sniper"
+  | "death"
+  | "boss_death"
+  | "leak"
+  | "wave"
+  | "win"
+  | "lose"
+  | "wind";
+
+const SAMPLE_FILES: Record<SampleName, string> = {
+  gunner: "/sfx/sfx_gunner.wav",
+  cannon: "/sfx/sfx_cannon.wav",
+  sniper: "/sfx/sfx_sniper.wav",
+  death: "/sfx/sfx_death.wav",
+  boss_death: "/sfx/sfx_boss_death.wav",
+  leak: "/sfx/sfx_leak.wav",
+  wave: "/sfx/sfx_wave.wav",
+  win: "/sfx/sfx_win.wav",
+  lose: "/sfx/sfx_lose.wav",
+  wind: "/sfx/bed_dust_wind.wav",
+};
+
 export class GameAudio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -7,6 +32,7 @@ export class GameAudio {
   private music: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private ambient: { stop: () => void } | null = null;
+  private samples = new Map<SampleName, AudioBuffer>();
   muted = false;
   unlocked = false;
 
@@ -24,12 +50,46 @@ export class GameAudio {
       this.music.connect(this.master);
       this.master.connect(this.ctx.destination);
       this.noise = this.makeNoise(this.ctx);
+      this.preloadSamples(this.ctx);
     }
     if (this.ctx.state === "suspended") {
       void this.ctx.resume();
     }
     this.unlocked = true;
     this.startAmbient();
+  }
+
+  private preloadSamples(ctx: AudioContext) {
+    for (const name of Object.keys(SAMPLE_FILES) as SampleName[]) {
+      fetch(SAMPLE_FILES[name])
+        .then((r) => r.arrayBuffer())
+        .then((buf) => ctx.decodeAudioData(buf))
+        .then((decoded) => {
+          this.samples.set(name, decoded);
+          if (name === "wind" && this.ambient) this.restartAmbient();
+        })
+        .catch(() => {
+          /* stays on the synthesized sound */
+        });
+    }
+  }
+
+  /** Plays a real sample if it has loaded; returns whether it did, so callers can fall back. */
+  private playSample(name: SampleName, gain = 1): boolean {
+    const e = this.env();
+    const buf = this.samples.get(name);
+    if (!e || !buf) return false;
+    const src = e.ctx.createBufferSource();
+    src.buffer = buf;
+    const g = e.ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g).connect(e.sfx);
+    src.start(e.t);
+    src.onended = () => {
+      src.disconnect();
+      g.disconnect();
+    };
+    return true;
   }
 
   setMuted(muted: boolean) {
@@ -48,6 +108,7 @@ export class GameAudio {
   }
 
   playGun() {
+    if (this.playSample("gunner", 0.5)) return;
     const e = this.env();
     if (!e) return;
     this.tone(e, 620 + Math.random() * 80, 0.045, 0.09, "square", 0.18);
@@ -55,6 +116,7 @@ export class GameAudio {
   }
 
   playCannon() {
+    if (this.playSample("cannon", 0.6)) return;
     const e = this.env();
     if (!e) return;
     this.noiseBurst(e, 0.16, 0.35, 400);
@@ -63,6 +125,7 @@ export class GameAudio {
   }
 
   playSniper() {
+    if (this.playSample("sniper", 0.6)) return;
     const e = this.env();
     if (!e) return;
     this.tone(e, 980, 0.02, 0.16, "sawtooth", 0.12);
@@ -78,20 +141,25 @@ export class GameAudio {
   }
 
   playDeath(kind: string) {
-    const e = this.env();
-    if (!e) return;
     if (kind === "boss") {
+      if (this.playSample("boss_death", 0.7)) return;
+      const e = this.env();
+      if (!e) return;
       this.noiseBurst(e, 0.4, 0.55, 500);
       this.tone(e, 70, 0.1, 0.7, "sine", 0.5);
       this.tone(e, 110, 0.05, 0.45, "triangle", 0.25);
       return;
     }
+    if (this.playSample("death", 0.35)) return;
+    const e = this.env();
+    if (!e) return;
     const base = kind === "brute" || kind === "bomber" ? 110 : kind === "swarm" ? 240 : kind === "scout" ? 280 : 170;
     this.noiseBurst(e, 0.07, kind === "brute" || kind === "bomber" ? 0.28 : 0.16, 700);
     this.tone(e, base, 0.02, 0.14, "triangle", 0.2);
   }
 
   playLeak() {
+    if (this.playSample("leak", 0.55)) return;
     const e = this.env();
     if (!e) return;
     this.tone(e, 220, 0.01, 0.18, "square", 0.16);
@@ -99,6 +167,7 @@ export class GameAudio {
   }
 
   playWave() {
+    if (this.playSample("wave", 0.6)) return;
     const e = this.env();
     if (!e) return;
     this.tone(e, 330, 0.01, 0.22, "triangle", 0.18);
@@ -128,6 +197,7 @@ export class GameAudio {
   }
 
   playWin() {
+    if (this.playSample("win", 0.7)) return;
     const e = this.env();
     if (!e) return;
     const notes = [262, 330, 392, 523];
@@ -135,6 +205,7 @@ export class GameAudio {
   }
 
   playLose() {
+    if (this.playSample("lose", 0.7)) return;
     const e = this.env();
     if (!e) return;
     const notes = [196, 165, 130];
@@ -145,6 +216,12 @@ export class GameAudio {
     const e = this.env();
     if (!e) return;
     this.tone(e, 140, 0.01, 0.08, "square", 0.08);
+  }
+
+  private restartAmbient() {
+    if (this.ambient) this.ambient.stop();
+    this.ambient = null;
+    this.startAmbient();
   }
 
   private startAmbient() {
@@ -175,7 +252,7 @@ export class GameAudio {
     const wind = ctx.createBufferSource();
     const wg = ctx.createGain();
     const wf = ctx.createBiquadFilter();
-    if (this.noise) wind.buffer = this.noise;
+    wind.buffer = this.samples.get("wind") ?? this.noise;
     wind.loop = true;
     wf.type = "bandpass";
     wf.frequency.value = 900;
