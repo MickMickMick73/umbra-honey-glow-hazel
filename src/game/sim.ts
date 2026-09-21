@@ -530,7 +530,13 @@ export class Sim {
       t.targetId = target ? target.id : -1;
       if (target) {
         const desired = Math.atan2(target.x - t.x, target.z - t.z);
-        t.yaw = dampAngle(t.yaw, desired, 10 * dt);
+        const turn =
+          t.kind === "sniper" || t.kind === "harpoon" || t.kind === "gatling" || t.kind === "hotchkiss"
+            ? 16
+            : t.kind === "cannon" || t.kind === "siege" || t.kind === "dynamite"
+              ? 7
+              : 12;
+        t.yaw = dampAngle(t.yaw, desired, turn * dt);
         if (t.cooldown <= 0) {
           this.fire(t, target);
           t.cooldown = 1 / (stats.rate * this.beaconMul(t.x, t.z));

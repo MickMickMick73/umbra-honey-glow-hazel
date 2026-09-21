@@ -26,9 +26,45 @@ const _v = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _dir = new THREE.Vector3();
+const _camRight = new THREE.Vector3();
+const _camUp = new THREE.Vector3();
 
 function isoFacing(yaw: number) {
   return Math.sin(yaw) - Math.cos(yaw) >= 0 ? 1 : -1;
+}
+
+/** Barrel is drawn pointing screen-left. Flip so it points at the target. */
+function gunFacingFromScreen(sx: number, previous: number) {
+  const next = sx >= 0 ? -1 : 1;
+  if (previous !== 1 && previous !== -1) return next;
+  if (next !== previous && Math.abs(sx) < 0.22) return previous;
+  return next;
+}
+
+const GUN_LEAN: Record<TowerKind, number> = {
+  gunner: 0.36,
+  cannon: 0.24,
+  slow: 0.05,
+  sniper: 0.28,
+  gatling: 0.34,
+  dynamite: 0.22,
+  oil: 0.08,
+  harpoon: 0.32,
+  beacon: 0.04,
+  siege: 0.22,
+  hotchkiss: 0.34,
+};
+
+function aimOnScreen(camera: THREE.Camera, yaw: number) {
+  camera.matrixWorld.extractBasis(_camRight, _camUp, _dir);
+  const dx = Math.sin(yaw);
+  const dz = Math.cos(yaw);
+  return {
+    sx: dx * _camRight.x + dz * _camRight.z,
+    sy: dx * _camUp.x + dz * _camUp.z,
+    dx,
+    dz,
+  };
 }
 
 export class GameView {
@@ -270,7 +306,7 @@ export class GameView {
     this.syncParticles();
     this.syncRange();
     this.syncPlots();
-    this.animTowers();
+    this.animTowers(dt);
     this.animDepot();
     this.animPlants();
     this.applyShake();
@@ -553,8 +589,9 @@ export class GameView {
     }
   }
 
-  private animTowers() {
+  private animTowers(dt: number) {
     const t = this.clock.getElapsed();
+    this.camera.matrixWorld.extractBasis(_camRight, _camUp, _dir);
     for (const tower of sim.towers.values()) {
       const mesh = this.towerMeshes.get(tower.plotId);
       if (!mesh) continue;
@@ -578,20 +615,34 @@ export class GameView {
       } else {
         frame = Math.floor(t * 2.4 + tower.plotId) % 2;
       }
+      const aim = aimOnScreen(this.camera, tower.yaw);
+      const prevFacing = typeof mesh.userData.gunFacing === "number" ? mesh.userData.gunFacing : 0;
+      const facing = this.reduced ? isoFacing(tower.yaw) : gunFacingFromScreen(aim.sx, prevFacing);
+      mesh.userData.gunFacing = facing;
+      const maxLean = this.reduced ? 0 : GUN_LEAN[tower.kind];
+      const desiredLean = aiming ? Math.max(-maxLean, Math.min(maxLean, aim.sy * 1.35)) : 0;
+      const leanNow = typeof mesh.userData.gunLean === "number" ? mesh.userData.gunLean : 0;
+      const lean = leanNow + (desiredLean - leanNow) * Math.min(1, 10 * dt);
+      mesh.userData.gunLean = lean;
       const rec = firing ? 1 + tower.kick * 0.28 : 1;
       this.setSpriteFrame(
         mesh,
         this.kit.maps.guns[tower.kind],
         frame,
-        isoFacing(tower.yaw),
+        facing,
         size.w * grow * rec,
         size.h * grow * (firing && tower.kick > 0.14 ? 1.1 : 1),
         firing ? 0xffe8d0 : 0xffffff,
+        lean,
       );
       const body = mesh.getObjectByName("body") as THREE.Sprite | undefined;
       if (body && !this.reduced) {
         const bobHz = tower.kind === "gatling" || tower.kind === "hotchkiss" ? 8.5 : tower.kind === "slow" || tower.kind === "beacon" ? 2.2 : 3.6;
         const amp = firing ? 0.055 : 0.028;
+        const kickBack = firing ? tower.kick * 0.2 : 0;
+        const press = aiming ? 0.07 : 0;
+        body.position.x = aim.dx * press - aim.dx * kickBack;
+        body.position.z = aim.dz * press - aim.dz * kickBack;
         body.position.y = 0.04 + Math.sin(t * bobHz + tower.plotId) * amp + (firing ? tower.kick * 0.06 : 0);
       }
       const mz = mesh.getObjectByName("muzzle") as THREE.Sprite | undefined;
@@ -601,7 +652,9 @@ export class GameView {
         if (on) {
           const s = (tower.kind === "gatling" || tower.kind === "hotchkiss" ? 0.55 : 0.42) + tower.kick * 2.4;
           mz.scale.set(s, s * 0.9, 1);
-          mz.position.y = size.h * grow * (tower.kind === "sniper" || tower.kind === "harpoon" ? 0.72 : 0.58);
+          const barrel = size.w * grow * 0.34;
+          const lift = size.h * grow * (tower.kind === "sniper" || tower.kind === "harpoon" ? 0.72 : 0.58);
+          mz.position.set(-facing * _camRight.x * barrel, lift, -facing * _camRight.z * barrel);
           const mat = mz.material as THREE.SpriteMaterial;
           const fx = this.kit.maps.fx[Math.floor(t * 22) % this.kit.maps.fx.length]!;
           if (mat.map !== fx) {
@@ -697,6 +750,7 @@ export class GameView {
     w: number,
     h: number,
     tint: number,
+    roll = 0,
   ) {
     const spr = group.getObjectByName("body") as THREE.Sprite | undefined;
     if (!spr) return;
@@ -707,6 +761,7 @@ export class GameView {
       mat.needsUpdate = true;
     }
     mat.color.setHex(tint);
+    mat.rotation = roll;
     spr.scale.set(w * facing, h, 1);
   }
 
