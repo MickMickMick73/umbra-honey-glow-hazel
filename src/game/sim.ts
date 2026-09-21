@@ -1,4 +1,4 @@
-import { ENEMIES, FIXED_DT, SELL_RATE, START_GOLD, START_LIVES, TOTAL_WAVES, TOWER_ORDER, TOWERS, WAVES, towerUnlocked } from "./config";
+import { DEPOT_STAGE_NAME, ENEMIES, FIXED_DT, SELL_RATE, START_GOLD, START_LIVES, TOTAL_WAVES, TOWER_ORDER, TOWERS, WAVES, depotStage, towerUnlocked } from "./config";
 import { plotById, samplePath } from "./map";
 import { useGame } from "./store";
 import type {
@@ -19,6 +19,7 @@ import {
   queueSave,
   recordScore,
   readSettings,
+  SAVE_VERSION,
   type GameSave,
 } from "./persist";
 
@@ -91,7 +92,7 @@ export class Sim {
   snapshot(): GameSave | null {
     if (!playable(this.phase)) return null;
     return {
-      version: 1,
+      version: SAVE_VERSION,
       savedAt: Date.now(),
       phase: this.phase,
       gold: this.gold,
@@ -281,6 +282,11 @@ export class Sim {
     this.spawnQ.sort((a, b) => a.time - b.time);
     this.expectedInWave = this.spawnQ.length;
     this.banner = `Wave ${this.wave} — ${def.name}`;
+    const stage = depotStage(this.wave);
+    if (stage > depotStage(this.wave - 1)) {
+      this.gold += 20 + stage * 20;
+      this.banner = `Wave ${this.wave} — ${def.name}. ${DEPOT_STAGE_NAME[stage]} rising.`;
+    }
     this.bannerT = 2.4;
     audio.playWave();
     this.flushHud();
@@ -403,7 +409,7 @@ export class Sim {
         this.phase = "prep";
         this.waveName = WAVES[this.wave]?.name ?? "";
         const unlocked = TOWER_ORDER.filter((k) => TOWERS[k].unlockWave === this.wave + 1);
-        if (this.wave === 6) useGame.getState().setCine("mid");
+        if (this.wave === 6 || this.wave === 16) useGame.getState().setCine("mid");
         if (unlocked.length) {
           this.banner = `${unlocked.map((k) => TOWERS[k].name).join(" · ")} ready on the line.`;
         } else {
@@ -420,13 +426,20 @@ export class Sim {
     const def = ENEMIES[kind];
     const id = this.nextId++;
     const sample = samplePath(path, s);
+    const scale = 1 + Math.max(0, this.wave - 12) * 0.065;
+    const hp = Math.round(def.hp * scale);
+    const gold = Math.round(def.gold * (1 + Math.max(0, this.wave - 12) * 0.03));
     const lane =
-      kind === "boss" ? 0 : kind === "swarm" ? ((id % 5) - 2) * 0.2 : ((id % 3) - 1) * 0.14;
+      kind === "boss" || kind === "engine"
+        ? 0
+        : kind === "swarm"
+          ? ((id % 5) - 2) * 0.2
+          : ((id % 3) - 1) * 0.14;
     this.enemies.push({
       id,
       kind,
-      hp: def.hp,
-      maxHp: def.hp,
+      hp,
+      maxHp: hp,
       speed: def.speed,
       path,
       s,
@@ -435,7 +448,7 @@ export class Sim {
       y: 0,
       heading: sample.heading,
       lane,
-      gold: def.gold,
+      gold,
       radius: def.radius,
       slowUntil: 0,
       slowMul: 1,
@@ -453,9 +466,9 @@ export class Sim {
       const enrage = e.enraged ? 1.38 : 1;
       const spd = e.speed * slowed * enrage;
       const gait =
-        e.kind === "brute" || e.kind === "bomber"
+        e.kind === "brute" || e.kind === "bomber" || e.kind === "sapper"
           ? 3.4
-          : e.kind === "boss"
+          : e.kind === "boss" || e.kind === "engine"
             ? 2.8
             : e.kind === "swarm"
               ? 9.2
@@ -463,7 +476,9 @@ export class Sim {
                 ? 8.4
                 : e.kind === "scout"
                   ? 10.2
-                  : 6.8;
+                  : e.kind === "outlaw"
+                    ? 7.2
+                    : 6.8;
       e.bob += dt * gait * Math.max(0.4, slowed * enrage);
       e.s += spd * dt;
       const sample = samplePath(e.path, e.s);
@@ -472,7 +487,7 @@ export class Sim {
       e.x = sample.x + sideX;
       e.z = sample.z + sideZ;
       e.heading = sample.heading;
-      const hop = e.kind === "brute" || e.kind === "boss" ? 0.02 : 0.045;
+      const hop = e.kind === "brute" || e.kind === "boss" || e.kind === "engine" ? 0.02 : 0.045;
       e.y = Math.abs(Math.sin(e.bob)) * hop;
 
       if (sample.done) {
@@ -506,6 +521,11 @@ export class Sim {
       const stats = def.stats[t.tier]!;
       t.cooldown = Math.max(0, t.cooldown - dt);
       if (t.kick > 0) t.kick = Math.max(0, t.kick - dt);
+      if (t.kind === "beacon") {
+        t.targetId = -1;
+        if (t.cooldown <= 0) this.fireBeacon(t, stats.damage, stats.range);
+        continue;
+      }
       const target = this.pickTarget(t, stats.range);
       t.targetId = target ? target.id : -1;
       if (target) {
@@ -513,10 +533,50 @@ export class Sim {
         t.yaw = dampAngle(t.yaw, desired, 10 * dt);
         if (t.cooldown <= 0) {
           this.fire(t, target);
-          t.cooldown = 1 / stats.rate;
+          t.cooldown = 1 / (stats.rate * this.beaconMul(t.x, t.z));
         }
       }
     }
+  }
+
+  private beaconMul(x: number, z: number): number {
+    let mul = 1;
+    for (const b of this.towers.values()) {
+      if (b.kind !== "beacon") continue;
+      const r = TOWERS.beacon.stats[b.tier]!.range;
+      const dx = b.x - x;
+      const dz = b.z - z;
+      if (dx * dx + dz * dz <= r * r) mul *= 1.2 + b.tier * 0.08;
+    }
+    return mul;
+  }
+
+  private fireBeacon(t: Tower, damage: number, range: number) {
+    const stats = TOWERS.beacon.stats[t.tier]!;
+    t.kick = 0.38;
+    t.cooldown = 1 / stats.rate;
+    this.aoe(t.x, t.z, range, damage, 1, 0);
+    this.pulses.push({
+      x: t.x,
+      y: 0.1,
+      z: t.z,
+      ttl: 0.55,
+      max: 0.55,
+      radius: range,
+      color: 0xc9a227,
+    });
+    this.beams.push({
+      x1: t.x,
+      y1: 1.55,
+      z1: t.z,
+      x2: t.x,
+      y2: 0.2,
+      z2: t.z,
+      ttl: 0.22,
+      max: 0.22,
+      kind: "beacon",
+    });
+    audio.playSlow();
   }
 
   private pickTarget(t: Tower, range: number): Enemy | null {
@@ -539,18 +599,22 @@ export class Sim {
     const def = TOWERS[t.kind];
     const stats = def.stats[t.tier]!;
     t.kick =
-      t.kind === "cannon" || t.kind === "dynamite"
+      t.kind === "cannon" || t.kind === "dynamite" || t.kind === "siege"
         ? 0.42
-        : t.kind === "sniper"
+        : t.kind === "sniper" || t.kind === "harpoon"
           ? 0.36
           : t.kind === "slow" || t.kind === "oil"
             ? 0.32
-            : t.kind === "gatling"
+            : t.kind === "gatling" || t.kind === "hotchkiss"
               ? 0.14
               : 0.22;
-    const muzzleY = t.kind === "sniper" ? 1.35 : t.kind === "slow" ? 1.6 : 0.55;
-    if (t.kind === "sniper") {
+    const muzzleY = t.kind === "sniper" ? 1.35 : t.kind === "slow" || t.kind === "beacon" ? 1.6 : 0.55;
+    if (t.kind === "sniper" || t.kind === "harpoon") {
       this.hurt(target, stats.damage, t.x, t.z);
+      if (t.kind === "harpoon" && stats.slow < 1) {
+        target.slowMul = Math.min(target.slowMul, stats.slow);
+        target.slowUntil = Math.max(target.slowUntil, this.time + stats.slowDuration);
+      }
       this.beams.push({
         x1: t.x,
         y1: muzzleY,
@@ -558,12 +622,13 @@ export class Sim {
         x2: target.x,
         y2: 0.45,
         z2: target.z,
-        ttl: 0.12,
-        max: 0.12,
-        kind: "sniper",
+        ttl: t.kind === "harpoon" ? 0.16 : 0.12,
+        max: t.kind === "harpoon" ? 0.16 : 0.12,
+        kind: t.kind === "harpoon" ? "harpoon" : "sniper",
       });
-      audio.playSniper();
-      this.addTrauma(0.08);
+      if (t.kind === "harpoon") audio.playSlow();
+      else audio.playSniper();
+      this.addTrauma(t.kind === "harpoon" ? 0.05 : 0.08);
       return;
     }
     if (t.kind === "slow") {
@@ -616,9 +681,10 @@ export class Sim {
       audio.playCannon();
       return;
     }
-    if (t.kind === "cannon" || t.kind === "dynamite") {
+    if (t.kind === "cannon" || t.kind === "dynamite" || t.kind === "siege") {
       const dist = Math.hypot(target.x - t.x, target.z - t.z);
-      const flight = Math.max(0.28, dist / (t.kind === "dynamite" ? 5.4 : 7.2));
+      const speed = t.kind === "siege" ? 4.6 : t.kind === "dynamite" ? 5.4 : 7.2;
+      const flight = Math.max(0.28, dist / speed);
       this.projectiles.push({
         id: this.nextId++,
         kind: "shell",
@@ -640,6 +706,36 @@ export class Sim {
       });
       audio.playCannon();
       this.addTrauma(0.05);
+      return;
+    }
+    if (t.kind === "hotchkiss") {
+      for (let i = 0; i < 3; i++) {
+        const lead = 0.08 + i * 0.07;
+        const sample = samplePath(target.path, target.s + target.speed * lead);
+        const d = Math.hypot(sample.x - t.x, sample.z - t.z);
+        const fl = Math.max(0.07, d / 15);
+        this.projectiles.push({
+          id: this.nextId++,
+          kind: "bullet",
+          x: t.x,
+          y: 0.5,
+          z: t.z,
+          vx: (sample.x - t.x) / fl,
+          vy: 0,
+          vz: (sample.z - t.z) / fl,
+          destX: sample.x,
+          destY: 0.35,
+          destZ: sample.z,
+          damage: stats.damage,
+          splash: stats.splash,
+          ttl: fl + 0.04,
+          flight: 0,
+          flightMax: fl,
+          targetId: target.id,
+        });
+      }
+      audio.playGun();
+      this.addTrauma(0.04);
       return;
     }
     const dist = Math.hypot(target.x - t.x, target.z - t.z);
@@ -677,7 +773,7 @@ export class Sim {
       p.x += p.vx * dt;
       p.z += p.vz * dt;
       if (p.kind === "shell") {
-        p.y = 0.55 + Math.sin(t * Math.PI) * 1.8;
+        p.y = 0.55 + Math.sin(t * Math.PI) * (p.splash > 1.8 ? 2.4 : 1.8);
       } else {
         p.y = 0.48;
       }
@@ -738,6 +834,15 @@ export class Sim {
       this.bannerT = 2.2;
       this.addTrauma(0.35);
     }
+    if (e.kind === "engine" && !e.enraged && e.hp <= e.maxHp * 0.45) {
+      e.enraged = true;
+      this.banner = "The Iron Engine stokes the fire.";
+      this.bannerT = 2.2;
+      this.addTrauma(0.4);
+    }
+    if (e.kind === "outlaw" && !e.enraged && e.hp <= e.maxHp * 0.4) {
+      e.enraged = true;
+    }
     if (e.hp <= 0) this.kill(e, fromX, fromZ);
   }
 
@@ -745,9 +850,23 @@ export class Sim {
     this.gold += e.gold;
     this.kills += 1;
     audio.playDeath(e.kind);
-    const color = e.kind === "boss" ? 0x3a3a3c : e.kind === "brute" || e.kind === "bomber" ? 0x4a3a32 : 0x6a4a32;
-    this.burst(e.x, 0.5, e.z, e.kind === "boss" ? 28 : e.kind === "bomber" ? 18 : 10, color, 2.2);
-    this.addTrauma(e.kind === "boss" ? 0.55 : e.kind === "bomber" ? 0.22 : 0.08);
+    const color =
+      e.kind === "boss" || e.kind === "engine"
+        ? 0x3a3a3c
+        : e.kind === "brute" || e.kind === "bomber" || e.kind === "sapper"
+          ? 0x4a3a32
+          : 0x6a4a32;
+    this.burst(
+      e.x,
+      0.5,
+      e.z,
+      e.kind === "boss" || e.kind === "engine" ? 28 : e.kind === "bomber" ? 18 : 10,
+      color,
+      2.2,
+    );
+    this.addTrauma(
+      e.kind === "boss" || e.kind === "engine" ? 0.55 : e.kind === "bomber" ? 0.22 : 0.08,
+    );
     if (e.kind === "bomber") {
       this.aoe(e.x, e.z, 1.25, 28, 0.75, 0.8);
       this.pulses.push({
@@ -760,8 +879,30 @@ export class Sim {
         color: 0xc45c3a,
       });
     }
+    if (e.kind === "sapper") {
+      for (const o of this.enemies) {
+        if (o === e) continue;
+        if (Math.hypot(o.x - e.x, o.z - e.z) < 1.7) {
+          o.hp = Math.min(o.maxHp, o.hp + 48);
+          o.flash = 0.16;
+        }
+      }
+      this.pulses.push({
+        x: e.x,
+        y: 0.1,
+        z: e.z,
+        ttl: 0.35,
+        max: 0.35,
+        radius: 1.7,
+        color: 0x7a8f5a,
+      });
+    }
     if (e.kind === "boss") {
       for (let i = 0; i < 4; i++) this.spawnEnemy("runner", e.path, Math.max(0, e.s - 0.4));
+    }
+    if (e.kind === "engine") {
+      for (let i = 0; i < 3; i++) this.spawnEnemy("sapper", e.path, Math.max(0, e.s - 0.5));
+      this.addTrauma(0.35);
     }
     const idx = this.enemies.indexOf(e);
     if (idx >= 0) this.enemies.splice(idx, 1);

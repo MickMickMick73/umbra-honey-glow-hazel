@@ -32,6 +32,7 @@ export function Game() {
         load: () => void;
         leave: () => void;
         peek: () => ReturnType<typeof peekSave>;
+        wave: (n: number) => void;
       };
     };
     w.__iron = {
@@ -52,6 +53,10 @@ export function Game() {
       load: () => continueRun(),
       leave: () => leaveYard(),
       peek: () => peekSave(),
+      wave: (n) => {
+        sim.wave = Math.max(0, Math.min(n, 24));
+        sim.flushHud();
+      },
     };
     return () => {
       delete w.__iron;
@@ -125,8 +130,8 @@ export function Game() {
         requestStartWave();
         return;
       }
-      if (ev.code.startsWith("Digit")) {
-        const n = Number(ev.code.slice(-1));
+      if (ev.code.startsWith("Digit") || ev.code === "Minus") {
+        const n = ev.code === "Minus" ? 11 : ev.code === "Digit0" ? 10 : Number(ev.code.slice(-1));
         if (n >= 1 && n <= TOWER_ORDER.length) {
           const kind = TOWER_ORDER[n - 1];
           if (kind) {

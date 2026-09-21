@@ -1,7 +1,7 @@
 import type { EnemyKind, Phase, SpeedMult, TowerKind, TowerTier } from "./types";
-import { ENEMIES, TOWERS, TOTAL_WAVES } from "./config";
+import { ENEMIES, START_LIVES, TOWERS, TOTAL_WAVES } from "./config";
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 export const SETTINGS_VERSION = 1;
 export const MAX_SCORES = 10;
 export const DEFAULT_CALLSIGN = "Hand";
@@ -153,7 +153,7 @@ export function migrateSave(raw: unknown): GameSave | null {
     phase,
     gold: num(s.gold, 0),
     lives: num(s.lives, 0),
-    maxLives: num(s.maxLives, 20),
+    maxLives: num(s.maxLives, START_LIVES),
     wave: s.wave,
     waveName: typeof s.waveName === "string" ? s.waveName : "",
     waveTime: num(s.waveTime, 0),
@@ -193,7 +193,7 @@ function validEnemy(e: unknown): e is SavedEnemy {
 function validSpawn(s: unknown): s is SavedSpawn {
   if (!s || typeof s !== "object") return false;
   const x = s as SavedSpawn;
-  return typeof x.time === "number" && x.kind in ENEMIES && (x.path === 0 || x.path === 1);
+  return typeof x.time === "number" && x.kind in ENEMIES && (x.path === 0 || x.path === 1 || x.path === 2);
 }
 
 export function readSave(): GameSave | null {

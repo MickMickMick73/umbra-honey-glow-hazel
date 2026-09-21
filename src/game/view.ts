@@ -8,6 +8,7 @@ import {
   buildRails,
   buildTerrain,
   buildTower,
+  DEPOT_SIZE,
   GUN_SIZE,
   makeGeos,
   makeMaterials,
@@ -16,7 +17,7 @@ import {
 } from "./models";
 import { PLOTS, plotById } from "./map";
 import { sim } from "./sim";
-import { HUD_RESERVE_PX, TOWERS } from "./config";
+import { depotStage, HUD_RESERVE_PX, TOWERS } from "./config";
 import { cineLocked } from "./cineLock";
 import { useGame } from "./store";
 import type { Enemy, EnemyKind, TowerKind } from "./types";
@@ -67,6 +68,8 @@ export class GameView {
   private burstPool: THREE.Sprite[] = [];
   private burstMats: THREE.SpriteMaterial[] = [];
   private plants: THREE.Sprite[] = [];
+  private depot: THREE.Group | null = null;
+  private depotShown: 0 | 1 | 2 | 3 = 0;
   private lastBuildRev = -1;
   private pointerOn = false;
 
@@ -87,19 +90,19 @@ export class GameView {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
-    this.renderer.setClearColor(0xc4a882, 1);
+    this.renderer.setClearColor(0xb07a4e, 1);
 
     this.camera = new THREE.OrthographicCamera(-12, 12, 10, -10, 0.1, 120);
     const maps = loadArt();
     boostAnisotropy(maps, Math.min(8, this.renderer.capabilities.getMaxAnisotropy()));
     this.kit = { mats: makeMaterials(maps), geos: makeGeos(), maps };
 
-    this.scene.fog = new THREE.Fog(0xc4a882, 38, 78);
+    this.scene.fog = new THREE.Fog(0xb88862, 30, 70);
     this.scene.background = maps.sky;
 
-    const hemi = new THREE.HemisphereLight(0xf3e4c8, 0x7a5a3a, 1.12);
+    const hemi = new THREE.HemisphereLight(0xf6d4a0, 0x5a3824, 1.18);
     this.scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xffe0b0, 1.55);
+    const sun = new THREE.DirectionalLight(0xffc080, 1.5);
     sun.position.set(12, 18, 7);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -111,15 +114,16 @@ export class GameView {
     sun.shadow.camera.bottom = -16;
     sun.shadow.bias = -0.001;
     this.scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xb8c4d8, 0.28);
+    const fill = new THREE.DirectionalLight(0x6a7a9a, 0.26);
     fill.position.set(-10, 12, -6);
     this.scene.add(fill);
-    this.scene.add(new THREE.AmbientLight(0xfff1dc, 0.2));
+    this.scene.add(new THREE.AmbientLight(0xffe4c0, 0.22));
 
     this.plants = buildTerrain(this.scene, this.kit);
     buildHorizon(this.scene, this.kit);
     buildRails(this.scene, this.kit);
-    this.scene.add(buildDepot(this.kit));
+    this.depot = buildDepot(this.kit);
+    this.scene.add(this.depot);
 
     for (const plot of PLOTS) {
       const mesh = buildPlot(this.kit);
@@ -138,6 +142,9 @@ export class GameView {
       scout: buildEnemy("scout", this.kit),
       rider: buildEnemy("rider", this.kit),
       bomber: buildEnemy("bomber", this.kit),
+      outlaw: buildEnemy("outlaw", this.kit),
+      sapper: buildEnemy("sapper", this.kit),
+      engine: buildEnemy("engine", this.kit),
     };
 
     this.rangeRing = new THREE.Mesh(this.kit.geos.ring, this.kit.mats.range);
@@ -264,6 +271,7 @@ export class GameView {
     this.syncRange();
     this.syncPlots();
     this.animTowers();
+    this.animDepot();
     this.animPlants();
     this.applyShake();
     this.renderer.render(this.scene, this.camera);
@@ -366,8 +374,8 @@ export class GameView {
     const fill = hp.getObjectByName("hpFill") as THREE.Mesh | undefined;
     if (!fill) return;
     const ratio = Math.max(0, e.hp / e.maxHp);
-    fill.scale.x = Math.max(0.02, ratio) * (e.kind === "boss" ? 1.05 : e.kind === "brute" || e.kind === "bomber" ? 0.58 : 0.42);
-    fill.position.x = (fill.scale.x - (e.kind === "boss" ? 1.05 : e.kind === "brute" || e.kind === "bomber" ? 0.58 : 0.42)) / 2;
+    fill.scale.x = Math.max(0.02, ratio) * (e.kind === "boss" || e.kind === "engine" ? 1.05 : e.kind === "brute" || e.kind === "bomber" || e.kind === "sapper" ? 0.58 : 0.42);
+    fill.position.x = (fill.scale.x - (e.kind === "boss" || e.kind === "engine" ? 1.05 : e.kind === "brute" || e.kind === "bomber" || e.kind === "sapper" ? 0.58 : 0.42)) / 2;
     fill.material = ratio < 0.35 ? this.kit.mats.hpFill : this.kit.mats.hpFillOk;
     hp.visible = e.kind !== "swarm";
   }
@@ -407,7 +415,16 @@ export class GameView {
         continue;
       }
       m.visible = true;
-      m.material = b.kind === "sniper" ? this.kit.mats.beamSniper : b.kind === "oil" ? this.kit.mats.beamOil : this.kit.mats.beamSlow;
+      m.material =
+        b.kind === "sniper"
+          ? this.kit.mats.beamSniper
+          : b.kind === "oil"
+            ? this.kit.mats.beamOil
+            : b.kind === "harpoon"
+              ? this.kit.mats.beamHarpoon
+              : b.kind === "beacon"
+                ? this.kit.mats.beamBeacon
+                : this.kit.mats.beamSlow;
       const start = _v.set(b.x1, b.y1, b.z1);
       const end = _n.set(b.x2, b.y2, b.z2);
       const dist = start.distanceTo(end);
@@ -548,10 +565,10 @@ export class GameView {
       let frame: number;
       if (this.reduced) {
         frame = 0;
-      } else if (tower.kind === "gatling") {
+      } else if (tower.kind === "gatling" || tower.kind === "hotchkiss") {
         const hz = firing ? 16 : aiming ? 10 : 5;
         frame = Math.floor(t * hz + tower.plotId) % 4;
-      } else if (tower.kind === "slow" || tower.kind === "oil") {
+      } else if (tower.kind === "slow" || tower.kind === "oil" || tower.kind === "beacon") {
         const hz = firing ? 8 : 3.4;
         frame = Math.floor(t * hz + tower.plotId) % 4;
       } else if (firing) {
@@ -573,18 +590,18 @@ export class GameView {
       );
       const body = mesh.getObjectByName("body") as THREE.Sprite | undefined;
       if (body && !this.reduced) {
-        const bobHz = tower.kind === "gatling" ? 8.5 : tower.kind === "slow" ? 2.2 : 3.6;
+        const bobHz = tower.kind === "gatling" || tower.kind === "hotchkiss" ? 8.5 : tower.kind === "slow" || tower.kind === "beacon" ? 2.2 : 3.6;
         const amp = firing ? 0.055 : 0.028;
         body.position.y = 0.04 + Math.sin(t * bobHz + tower.plotId) * amp + (firing ? tower.kick * 0.06 : 0);
       }
       const mz = mesh.getObjectByName("muzzle") as THREE.Sprite | undefined;
       if (mz) {
-        const on = firing && tower.kind !== "slow";
+        const on = firing && tower.kind !== "slow" && tower.kind !== "beacon";
         mz.visible = on;
         if (on) {
-          const s = (tower.kind === "gatling" ? 0.55 : 0.42) + tower.kick * 2.4;
+          const s = (tower.kind === "gatling" || tower.kind === "hotchkiss" ? 0.55 : 0.42) + tower.kick * 2.4;
           mz.scale.set(s, s * 0.9, 1);
-          mz.position.y = size.h * grow * (tower.kind === "sniper" ? 0.72 : 0.58);
+          mz.position.y = size.h * grow * (tower.kind === "sniper" || tower.kind === "harpoon" ? 0.72 : 0.58);
           const mat = mz.material as THREE.SpriteMaterial;
           const fx = this.kit.maps.fx[Math.floor(t * 22) % this.kit.maps.fx.length]!;
           if (mat.map !== fx) {
@@ -594,6 +611,72 @@ export class GameView {
           mat.opacity = Math.min(1, tower.kick * 7);
         }
       }
+    }
+  }
+
+  private animDepot() {
+    const g = this.depot;
+    if (!g) return;
+    const stage = depotStage(sim.wave);
+    const size = DEPOT_SIZE[stage]!;
+    const frames = this.kit.maps.depot[stage];
+    const t = this.clock.getElapsed();
+    if (stage !== this.depotShown) {
+      this.depotShown = stage;
+      const grow1 = g.getObjectByName("grow1");
+      const grow2 = g.getObjectByName("grow2");
+      const grow3 = g.getObjectByName("grow3");
+      if (grow1) grow1.visible = stage >= 1;
+      if (grow2) grow2.visible = stage >= 2;
+      if (grow3) grow3.visible = stage >= 3;
+    }
+    const body = g.getObjectByName("depotBody") as THREE.Sprite | undefined;
+    if (body) {
+      const mat = body.material as THREE.SpriteMaterial;
+      const map = frames[this.reduced ? 0 : Math.floor(t * 3.2) % 4]!;
+      if (mat.map !== map) {
+        mat.map = map;
+        mat.needsUpdate = true;
+      }
+      body.scale.set(size.w, size.h, 1);
+      if (!this.reduced) body.position.y = 0.1 + Math.sin(t * 1.6) * 0.02;
+    }
+    const flag = g.getObjectByName("depotFlag") as THREE.Sprite | undefined;
+    if (flag) {
+      const mat = flag.material as THREE.SpriteMaterial;
+      const map = this.kit.maps.flag[this.reduced ? 0 : Math.floor(t * 7) % 4]!;
+      if (mat.map !== map) {
+        mat.map = map;
+        mat.needsUpdate = true;
+      }
+      flag.position.set(-1.35 - stage * 0.12, 1.85 + stage * 0.35, -0.75);
+      flag.scale.set(0.8 + stage * 0.08, 1.45 + stage * 0.18, 1);
+      flag.visible = true;
+    }
+    const s0 = g.getObjectByName("depotSmoke0") as THREE.Sprite | undefined;
+    const s1 = g.getObjectByName("depotSmoke1") as THREE.Sprite | undefined;
+    if (s0) {
+      const mat = s0.material as THREE.SpriteMaterial;
+      const map = this.kit.maps.smoke[this.reduced ? 0 : Math.floor(t * 6) % 4]!;
+      if (mat.map !== map) {
+        mat.map = map;
+        mat.needsUpdate = true;
+      }
+      s0.position.set(-1.55, 2.05 + stage * 0.28, -0.65);
+      s0.scale.set(1.0 + stage * 0.12, 1.5 + stage * 0.22, 1);
+      mat.opacity = 0.72 + Math.sin(t * 2.2) * 0.12;
+    }
+    if (s1) {
+      s1.visible = stage >= 2;
+      const mat = s1.material as THREE.SpriteMaterial;
+      const map = this.kit.maps.smoke[this.reduced ? 0 : (Math.floor(t * 5.4) + 2) % 4]!;
+      if (mat.map !== map) {
+        mat.map = map;
+        mat.needsUpdate = true;
+      }
+      s1.position.set(0.7, 2.55 + stage * 0.18, 0.2);
+      s1.scale.set(1.15, 1.75, 1);
+      mat.opacity = 0.55 + Math.sin(t * 1.8 + 1) * 0.1;
     }
   }
 

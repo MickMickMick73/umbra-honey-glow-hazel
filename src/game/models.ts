@@ -86,6 +86,18 @@ export function makeMaterials(maps: ArtMaps) {
       opacity: 0.78,
       depthWrite: false,
     }),
+    beamHarpoon: new THREE.MeshBasicMaterial({
+      color: 0xd8a05a,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+    }),
+    beamBeacon: new THREE.MeshBasicMaterial({
+      color: 0xf0c060,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+    }),
     bullet: std(0xf3eadc, maps.brass, { roughness: 0.35, metalness: 0.65 }),
     shell: std(0x9a9a9c, maps.iron, { roughness: 0.4, metalness: 0.7 }),
     unlitWhite: new THREE.MeshBasicMaterial({ color: 0xf3eadc }),
@@ -165,6 +177,9 @@ export const UNIT_SIZE: Record<EnemyKind, { w: number; h: number }> = {
   scout: { w: 1.02, h: 1.32 },
   rider: { w: 1.55, h: 1.48 },
   bomber: { w: 1.28, h: 1.45 },
+  outlaw: { w: 1.18, h: 1.5 },
+  sapper: { w: 1.22, h: 1.42 },
+  engine: { w: 2.55, h: 1.88 },
 };
 
 export const GUN_SIZE: Record<TowerKind, { w: number; h: number }> = {
@@ -175,7 +190,18 @@ export const GUN_SIZE: Record<TowerKind, { w: number; h: number }> = {
   gatling: { w: 1.48, h: 1.32 },
   dynamite: { w: 1.42, h: 1.35 },
   oil: { w: 1.45, h: 1.18 },
+  harpoon: { w: 1.58, h: 1.42 },
+  beacon: { w: 1.18, h: 2.08 },
+  siege: { w: 1.88, h: 1.48 },
+  hotchkiss: { w: 1.52, h: 1.36 },
 };
+
+export const DEPOT_SIZE: { w: number; h: number }[] = [
+  { w: 3.55, h: 2.95 },
+  { w: 4.15, h: 3.45 },
+  { w: 4.55, h: 3.85 },
+  { w: 4.95, h: 4.25 },
+];
 
 export function makeUnitSprite(map: THREE.Texture, w: number, h: number) {
   const mat = new THREE.SpriteMaterial({
@@ -203,21 +229,39 @@ function addBlob(parent: THREE.Object3D, kit: Kit, w: number, d: number) {
 }
 
 export function buildTerrain(scene: THREE.Scene, kit: Kit): THREE.Sprite[] {
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 64), kit.mats.dust);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(88, 72), kit.mats.dust);
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(8, 0, 5);
+  ground.position.set(8, 0, 5.5);
   ground.receiveShadow = true;
   scene.add(ground);
 
+  const packed = new THREE.Mesh(new THREE.PlaneGeometry(22, 16), kit.mats.packed);
+  packed.rotation.x = -Math.PI / 2;
+  packed.position.set(8.2, 0.008, 6.2);
+  packed.receiveShadow = true;
+  scene.add(packed);
+
+  const creek = new THREE.Mesh(new THREE.PlaneGeometry(18, 1.6), kit.mats.sageDark);
+  creek.rotation.x = -Math.PI / 2;
+  creek.position.set(7.5, 0.012, 13.6);
+  creek.receiveShadow = true;
+  scene.add(creek);
+  const creek2 = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.1), kit.mats.sage);
+  creek2.rotation.x = -Math.PI / 2;
+  creek2.position.set(-1.2, 0.013, 12.4);
+  creek2.rotation.z = 0.4;
+  creek2.receiveShadow = true;
+  scene.add(creek2);
+
   const rng = mulberry32(42);
   const rockGeo = kit.geos.box;
-  for (let i = 0; i < 22; i++) {
-    const x = rng() * 22 - 2;
-    const z = rng() * 16 - 2;
-    if (nearPath(x, z, 1.6) || nearPlot(x, z, 1.3)) continue;
+  for (let i = 0; i < 38; i++) {
+    const x = rng() * 26 - 4;
+    const z = rng() * 20 - 3;
+    if (nearPath(x, z, 1.55) || nearPlot(x, z, 1.25)) continue;
     const rock = new THREE.Mesh(rockGeo, rng() > 0.45 ? kit.mats.dustDark : kit.mats.iron);
-    const s = 0.28 + rng() * 0.6;
-    rock.scale.set(s, 0.2 + rng() * 0.4, s * (0.7 + rng() * 0.5));
+    const s = 0.26 + rng() * 0.7;
+    rock.scale.set(s, 0.18 + rng() * 0.48, s * (0.7 + rng() * 0.5));
     rock.position.set(x, rock.scale.y / 2, z);
     rock.rotation.y = rng() * Math.PI;
     rock.castShadow = true;
@@ -236,29 +280,54 @@ export function buildTerrain(scene: THREE.Scene, kit: Kit): THREE.Sprite[] {
   );
   const plants: THREE.Sprite[] = [];
   const plantRng = mulberry32(99);
-  for (let i = 0; i < 56; i++) {
-    const x = plantRng() * 26 - 4;
-    const z = plantRng() * 20 - 4;
-    if (nearPath(x, z, 1.35) || nearPlot(x, z, 1.15)) continue;
+  for (let i = 0; i < 92; i++) {
+    const x = plantRng() * 28 - 5;
+    const z = plantRng() * 22 - 4;
+    if (nearPath(x, z, 1.3) || nearPlot(x, z, 1.1)) continue;
     const mat = plantMats[Math.floor(plantRng() * plantMats.length)]!;
     const spr = new THREE.Sprite(mat);
-    const h = 0.75 + plantRng() * 0.85;
-    spr.scale.set(h * 0.92, h, 1);
+    const tall = i % 3 === 0;
+    const h = (tall ? 1.05 : 0.72) + plantRng() * 0.95;
+    spr.scale.set(h * (tall ? 0.78 : 0.92), h, 1);
     spr.position.set(x, h * 0.46, z);
     scene.add(spr);
     plants.push(spr);
   }
 
+  placeProp(scene, kit.maps.props.wagon, -1.6, 0.6, 2.35, 1.55);
+  placeProp(scene, kit.maps.props.tent, 15.9, 5.55, 2.15, 1.65);
+  placeProp(scene, kit.maps.props.watertower, -3.4, 8.4, 2.05, 3.15);
+  placeProp(scene, kit.maps.props.windmill, 21.6, 1.4, 2.55, 3.55);
+  placeProp(scene, kit.maps.props.tent, 0.4, 12.6, 1.85, 1.45);
+  placeProp(scene, kit.maps.props.wagon, 19.4, 11.8, 2.15, 1.45);
+
   for (const [x, z, w, h, d] of [
-    [-8, -6, 5.5, 2.2, 4.2],
-    [24, -7, 6.5, 2.8, 4.8],
-    [26, 16, 5.2, 1.8, 5],
-    [-7, 16, 4.6, 2.4, 4.2],
+    [-9, -6.5, 6.2, 2.4, 4.6],
+    [25, -7.5, 7.2, 3.1, 5.2],
+    [27, 17, 5.6, 2.0, 5.4],
+    [-8, 17, 5.2, 2.6, 4.6],
+    [22, 18.5, 4.4, 1.6, 3.8],
   ] as const) {
     addBox(scene, kit.mats.dustDark, w, h, d, x, h / 2, z, kit.geos);
     addBox(scene, kit.mats.rust, w * 0.9, 0.16, d * 0.9, x, h + 0.05, z, kit.geos);
   }
   return plants;
+}
+
+function placeProp(scene: THREE.Scene, map: THREE.Texture, x: number, z: number, w: number, h: number) {
+  const spr = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map,
+      transparent: true,
+      alphaTest: 0.28,
+      depthWrite: true,
+    }),
+  );
+  spr.center.set(0.5, 0);
+  spr.scale.set(w, h, 1);
+  spr.position.set(x, 0.02, z);
+  spr.renderOrder = 2;
+  scene.add(spr);
 }
 
 export function buildHorizon(scene: THREE.Scene, kit: Kit) {
@@ -267,15 +336,18 @@ export function buildHorizon(scene: THREE.Scene, kit: Kit) {
     fog: false,
     depthWrite: false,
   });
-  const plate = new THREE.Mesh(new THREE.PlaneGeometry(88, 28), mat);
-  plate.position.set(-16, 9, -18);
-  plate.lookAt(8.15, 3, 5.7);
-  scene.add(plate);
-
-  const plate2 = plate.clone();
-  plate2.position.set(-22, 8.5, 8);
-  plate2.lookAt(8.15, 3, 5.7);
-  scene.add(plate2);
+  const plates: [number, number, number][] = [
+    [-18, 10, -22],
+    [-26, 9.2, 6],
+    [8, 11, -26],
+    [28, 10.5, -10],
+  ];
+  for (const [x, y, z] of plates) {
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(110, 34), mat);
+    plate.position.set(x, y, z);
+    plate.lookAt(8.15, 3, 5.7);
+    scene.add(plate);
+  }
 }
 
 export function buildRails(scene: THREE.Scene, kit: Kit) {
@@ -353,27 +425,68 @@ export function buildRails(scene: THREE.Scene, kit: Kit) {
 
 export function buildDepot(kit: Kit): THREE.Group {
   const g = new THREE.Group();
-  addBox(g, kit.mats.woodLight, 3.2, 0.14, 2.6, 0, 0.07, 0, kit.geos);
-  addBox(g, kit.mats.wood, 2.2, 1.3, 1.6, 0.15, 0.78, 0, kit.geos);
-  addBox(g, kit.mats.rust, 2.5, 0.12, 1.9, 0.15, 1.5, 0, kit.geos);
-  const roof = new THREE.Mesh(kit.geos.box, kit.mats.rustBright);
-  roof.scale.set(2.6, 0.08, 2.0);
-  roof.position.set(0.15, 1.72, 0);
-  roof.rotation.z = 0.08;
-  roof.castShadow = true;
-  g.add(roof);
-  addBox(g, kit.mats.woodLight, 0.08, 0.9, 0.5, -0.9, 0.7, 0.82, kit.geos);
-  addBox(g, kit.mats.ironDark, 0.35, 0.55, 0.08, 0.9, 0.9, 0.84, kit.geos);
-  addCyl(g, kit.mats.wood, 0.05, 0.05, 1.6, -1.5, 0.8, -1.1, kit.geos);
-  addCyl(g, kit.mats.wood, 0.05, 0.05, 1.6, -2.1, 0.8, -1.1, kit.geos);
-  addCyl(g, kit.mats.wood, 0.05, 0.05, 1.6, -1.5, 0.8, -0.55, kit.geos);
-  addCyl(g, kit.mats.wood, 0.05, 0.05, 1.6, -2.1, 0.8, -0.55, kit.geos);
-  addCyl(g, kit.mats.rust, 0.55, 0.55, 0.7, -1.8, 1.85, -0.82, kit.geos);
-  addCyl(g, kit.mats.rustBright, 0.08, 0.08, 0.35, -1.8, 2.35, -0.82, kit.geos);
-  addBox(g, kit.mats.woodLight, 0.4, 0.32, 0.4, 1.3, 0.3, 1.0, kit.geos);
-  addBox(g, kit.mats.wood, 0.32, 0.28, 0.32, 1.55, 0.28, 0.65, kit.geos);
-  addBox(g, kit.mats.iron, 0.18, 0.55, 1.1, -1.55, 0.35, 0, kit.geos);
-  addBox(g, kit.mats.brass, 0.12, 0.12, 0.12, 0.15, 1.15, 0.85, kit.geos);
+  addBox(g, kit.mats.woodLight, 3.6, 0.14, 3.0, 0, 0.07, 0, kit.geos);
+  addBox(g, kit.mats.wood, 2.4, 0.55, 1.8, 0.1, 0.4, 0, kit.geos);
+  addBox(g, kit.mats.iron, 0.18, 0.55, 1.1, -1.7, 0.35, 0, kit.geos);
+  addBox(g, kit.mats.woodLight, 0.4, 0.32, 0.4, 1.35, 0.3, 1.05, kit.geos);
+  addBox(g, kit.mats.wood, 0.32, 0.28, 0.32, 1.6, 0.28, 0.7, kit.geos);
+
+  const grow1 = new THREE.Group();
+  grow1.name = "grow1";
+  grow1.visible = false;
+  addBox(grow1, kit.mats.wood, 4.4, 0.12, 3.6, 0.1, 0.08, 0.15, kit.geos);
+  addBox(grow1, kit.mats.sandbag, 0.42, 0.28, 1.6, -2.0, 0.28, 0.6, kit.geos);
+  addBox(grow1, kit.mats.sandbag, 0.42, 0.28, 1.6, -2.0, 0.28, -0.7, kit.geos);
+  addCyl(grow1, kit.mats.wood, 0.05, 0.05, 1.7, -2.35, 0.85, -1.25, kit.geos);
+  addCyl(grow1, kit.mats.rust, 0.5, 0.5, 0.65, -2.35, 1.85, -1.25, kit.geos);
+  g.add(grow1);
+
+  const grow2 = new THREE.Group();
+  grow2.name = "grow2";
+  grow2.visible = false;
+  for (const z of [-1.7, 1.7]) {
+    addBox(grow2, kit.mats.wood, 4.8, 0.85, 0.12, 0.05, 0.5, z, kit.geos);
+  }
+  addBox(grow2, kit.mats.ironDark, 0.14, 1.15, 3.4, -2.45, 0.7, 0, kit.geos);
+  addBox(grow2, kit.mats.sandbag, 0.5, 0.38, 2.2, 2.15, 0.32, 0.2, kit.geos);
+  addCyl(grow2, kit.mats.wood, 0.08, 0.08, 2.4, 2.05, 1.25, -1.55, kit.geos);
+  addCyl(grow2, kit.mats.wood, 0.08, 0.08, 2.4, -2.05, 1.25, 1.55, kit.geos);
+  g.add(grow2);
+
+  const grow3 = new THREE.Group();
+  grow3.name = "grow3";
+  grow3.visible = false;
+  addBox(grow3, kit.mats.iron, 5.2, 0.18, 4.1, 0.05, 0.16, 0.1, kit.geos);
+  addBox(grow3, kit.mats.rust, 0.22, 1.6, 4.0, -2.7, 0.95, 0.1, kit.geos);
+  addBox(grow3, kit.mats.rustBright, 1.1, 0.12, 1.4, 0.2, 2.35, -0.1, kit.geos);
+  addCyl(grow3, kit.mats.ironDark, 0.12, 0.12, 2.8, 2.35, 1.5, 1.7, kit.geos);
+  addCyl(grow3, kit.mats.brass, 0.16, 0.16, 0.28, 2.35, 2.95, 1.7, kit.geos);
+  g.add(grow3);
+
+  const body = makeUnitSprite(kit.maps.depot[0][0]!, DEPOT_SIZE[0]!.w, DEPOT_SIZE[0]!.h);
+  body.name = "depotBody";
+  body.position.set(0.15, 0.1, 0);
+  body.renderOrder = 2;
+  g.add(body);
+
+  const flag = makeUnitSprite(kit.maps.flag[0]!, 0.85, 1.55);
+  flag.name = "depotFlag";
+  flag.position.set(-1.55, 2.05, -0.85);
+  flag.renderOrder = 5;
+  g.add(flag);
+
+  const smoke0 = makeUnitSprite(kit.maps.smoke[0]!, 1.05, 1.55);
+  smoke0.name = "depotSmoke0";
+  smoke0.position.set(-1.7, 2.15, -0.7);
+  smoke0.renderOrder = 6;
+  g.add(smoke0);
+  const smoke1 = makeUnitSprite(kit.maps.smoke[1]!, 1.15, 1.7);
+  smoke1.name = "depotSmoke1";
+  smoke1.position.set(0.55, 2.45, 0.15);
+  smoke1.renderOrder = 6;
+  smoke1.visible = false;
+  g.add(smoke1);
+
   g.position.set(DEPOT.x, 0, DEPOT.z);
   return g;
 }
@@ -401,7 +514,7 @@ export function buildTower(kind: TowerKind, tier: TowerTier, kit: Kit): THREE.Gr
   const size = GUN_SIZE[kind];
   const grow = 1 + tier * 0.08;
   addBox(g, kit.mats.wood, 0.72, 0.1, 0.72, 0, 0.05, 0, kit.geos);
-  if (kind === "gunner" || kind === "cannon" || kind === "gatling") {
+  if (kind === "gunner" || kind === "cannon" || kind === "gatling" || kind === "hotchkiss") {
     addBox(g, kit.mats.sandbag, 0.26, 0.14, 0.16, 0.22, 0.16, 0.2, kit.geos);
     addBox(g, kit.mats.sandbag, 0.26, 0.14, 0.16, -0.22, 0.16, 0.2, kit.geos);
   }
@@ -436,8 +549,8 @@ export function buildEnemy(kind: EnemyKind, kit: Kit): THREE.Group {
   addBlob(g, kit, size.w * 0.38, size.w * 0.24);
   const spr = makeUnitSprite(kit.maps.units[kind][0]!, size.w, size.h);
   g.add(spr);
-  if (kind === "boss") attachHp(g, kit, 1.05, size.h + 0.18);
-  else if (kind === "brute" || kind === "bomber") attachHp(g, kit, 0.58, size.h + 0.16);
+  if (kind === "boss" || kind === "engine") attachHp(g, kit, 1.05, size.h + 0.18);
+  else if (kind === "brute" || kind === "bomber" || kind === "sapper") attachHp(g, kit, 0.58, size.h + 0.16);
   else if (kind !== "swarm") attachHp(g, kit, 0.42, size.h + 0.14);
   return g;
 }

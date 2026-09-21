@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { CineId, Phase, SpeedMult, TowerKind } from "./types";
-import { TOTAL_WAVES } from "./config";
+import { START_LIVES, TOTAL_WAVES } from "./config";
 import type { LastRun } from "./persist";
 
 export interface HudSnapshot {
@@ -42,7 +42,7 @@ const hudDefaults: HudSnapshot = {
   phase: "title",
   gold: 0,
   lives: 0,
-  maxLives: 20,
+  maxLives: START_LIVES,
   wave: 0,
   totalWaves: TOTAL_WAVES,
   waveName: "",

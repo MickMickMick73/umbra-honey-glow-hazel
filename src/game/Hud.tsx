@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TOWER_ART } from "./art";
 import { audio } from "./audio";
-import { CINE, ENEMIES, SELL_RATE, TOTAL_WAVES, TOWER_ORDER, TOWERS, WAVES, towerUnlocked } from "./config";
+import { CINE, ENEMIES, SELL_RATE, TOTAL_WAVES, TOWER_ORDER, TOWERS, WAVES, actFor, towerHotkey, towerUnlocked } from "./config";
 import { armCineLock, cineLocked } from "./cineLock";
 import {
   DEFAULT_CALLSIGN,
@@ -84,7 +84,7 @@ export function skipCine() {
 export function requestStartWave() {
   if (useGame.getState().cine || cineLocked()) return;
   if (sim.phase !== "prep") return;
-  if (sim.wave === TOTAL_WAVES - 1) {
+  if (sim.wave === 11 || sim.wave === 15 || sim.wave === 23) {
     useGame.getState().setCine("ironclad");
     return;
   }
@@ -157,12 +157,12 @@ function TitleScreen() {
           REDOUBT
         </h1>
         <p className="mt-4 max-w-sm text-sm leading-relaxed text-muted">
-          Raiders are coming down the line. Plant what you can afford now. Fresh
-          emplacements unlock as the dust thickens. Hold the depot.
+          Raiders are coming down the line. Twenty-four waves. The depot grows as you hold it.
+          Plant what you can afford now. Fresh emplacements unlock as the dust thickens.
         </p>
         <ul className="mt-5 space-y-1.5 text-sm text-muted">
           <li>Place on pads — corners cover more track.</li>
-          <li>Seven guns. Later waves open the heavy ones.</li>
+          <li>Eleven guns. Later waves open the heavy ones.</li>
           <li>The yard autosaves. Marks post to the ledger.</li>
         </ul>
         <div className="mt-6 flex w-full max-w-sm flex-col gap-2">
@@ -227,7 +227,7 @@ function EndScreen() {
           {won ? "The depot holds." : "The line broke."}
         </h2>
         <dl className="mt-5 grid grid-cols-3 gap-2 text-center">
-          <Stat label="Wave" value={`${wave}/12`} />
+          <Stat label="Wave" value={`${wave}/${TOTAL_WAVES}`} />
           <Stat label="Kills" value={String(kills)} />
           <Stat label="Depot" value={String(lives)} />
         </dl>
@@ -358,6 +358,13 @@ function CineOverlay({ id }: { id: CineId }) {
   const meta = CINE[id];
   const muted = useGame((s) => s.muted);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const title =
+    id === "ironclad" && sim.wave >= 23
+      ? "The Iron Engine is coming."
+      : id === "ironclad" && sim.wave >= 15
+        ? "The second iron is coming."
+        : meta.title;
+  const kicker = id === "ironclad" && sim.wave >= 23 ? "Final wave" : meta.kicker;
 
   useEffect(() => {
     const el = videoRef.current;
@@ -393,8 +400,8 @@ function CineOverlay({ id }: { id: CineId }) {
         </Button>
       </div>
       <div className="absolute inset-x-0 bottom-0 p-4 sm:p-8">
-        <p className="text-xs font-medium tracking-[0.22em] text-muted uppercase">{meta.kicker}</p>
-        <h2 className="mt-1 font-display text-3xl tracking-tight text-fg sm:text-5xl">{meta.title}</h2>
+        <p className="text-xs font-medium tracking-[0.22em] text-muted uppercase">{kicker}</p>
+        <h2 className="mt-1 font-display text-3xl tracking-tight text-fg sm:text-5xl">{title}</h2>
       </div>
     </div>
   );
@@ -524,6 +531,7 @@ function PlayHud() {
             <span className="text-muted">/{totalWaves}</span>
           </div>
           <div className="mt-1 truncate text-xs tracking-wide text-muted">
+            Act {["I", "II", "III"][actFor(waveActive ? wave : wave + 1) - 1]} ·{" "}
             {waveActive ? waveName : upcoming ? `Next — ${upcoming.name}` : waveName}
           </div>
         </div>
@@ -641,6 +649,7 @@ function TowerCard({
   const unlocked = towerUnlocked(kind, wave, waveActive);
   const can = unlocked && gold >= def.cost;
   const idx = TOWER_ORDER.indexOf(kind) + 1;
+  const hotkey = towerHotkey(idx);
   const justUnlocked = !waveActive && unlocked && def.unlockWave === Math.max(1, wave + 1) && def.unlockWave > 1;
   return (
     <button
@@ -660,7 +669,7 @@ function TowerCard({
         !unlocked && "opacity-70",
       )}
     >
-      <span className="absolute top-0.5 left-1 font-display text-xs leading-none text-faint tabular-nums">{idx}</span>
+      <span className="absolute top-0.5 left-1 font-display text-xs leading-none text-faint tabular-nums">{hotkey}</span>
       <img src={TOWER_ART[kind]} alt="" className="size-9 object-contain sm:size-10" />
       <span className="pb-0.5 text-xs leading-none tabular-nums text-muted">
         {unlocked ? def.cost : `W${def.unlockWave}`}

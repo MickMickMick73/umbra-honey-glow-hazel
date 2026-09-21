@@ -141,7 +141,7 @@ export class GameAudio {
   }
 
   playDeath(kind: string) {
-    if (kind === "boss") {
+    if (kind === "boss" || kind === "engine") {
       if (this.playSample("boss_death", 0.7)) return;
       const e = this.env();
       if (!e) return;
@@ -153,8 +153,17 @@ export class GameAudio {
     if (this.playSample("death", 0.35)) return;
     const e = this.env();
     if (!e) return;
-    const base = kind === "brute" || kind === "bomber" ? 110 : kind === "swarm" ? 240 : kind === "scout" ? 280 : 170;
-    this.noiseBurst(e, 0.07, kind === "brute" || kind === "bomber" ? 0.28 : 0.16, 700);
+    const base =
+      kind === "brute" || kind === "bomber" || kind === "sapper"
+        ? 110
+        : kind === "swarm"
+          ? 240
+          : kind === "scout"
+            ? 280
+            : kind === "outlaw"
+              ? 150
+              : 170;
+    this.noiseBurst(e, 0.07, kind === "brute" || kind === "bomber" || kind === "sapper" ? 0.28 : 0.16, 700);
     this.tone(e, base, 0.02, 0.14, "triangle", 0.2);
   }
 

@@ -1,8 +1,30 @@
-export type TowerKind = "gunner" | "cannon" | "slow" | "sniper" | "gatling" | "dynamite" | "oil";
-export type EnemyKind = "runner" | "brute" | "swarm" | "boss" | "scout" | "rider" | "bomber";
+export type TowerKind =
+  | "gunner"
+  | "cannon"
+  | "slow"
+  | "sniper"
+  | "gatling"
+  | "dynamite"
+  | "oil"
+  | "harpoon"
+  | "beacon"
+  | "siege"
+  | "hotchkiss";
+export type EnemyKind =
+  | "runner"
+  | "brute"
+  | "swarm"
+  | "boss"
+  | "scout"
+  | "rider"
+  | "bomber"
+  | "outlaw"
+  | "sapper"
+  | "engine";
 export type Phase = "title" | "prep" | "combat" | "won" | "lost";
 export type SpeedMult = 1 | 2 | 4;
 export type CineId = "intro" | "mid" | "victory" | "defeat" | "ironclad";
+export type DepotStage = 0 | 1 | 2 | 3;
 
 export type Vec2 = { x: number; z: number };
 
@@ -120,7 +142,7 @@ export interface Beam {
   z2: number;
   ttl: number;
   max: number;
-  kind: "sniper" | "slow" | "oil";
+  kind: "sniper" | "slow" | "oil" | "harpoon" | "beacon";
 }
 
 export interface Particle {
