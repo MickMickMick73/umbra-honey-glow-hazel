@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Figtree", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Oswald", ui-sans-serif, system-ui, sans-serif;
+
+  --color-bg: #14110e;
+  --color-surface: #1f1a16;
+  --color-surface-2: #2a231c;
+  --color-fg: #f3eadc;
+  --color-muted: #a89880;
+  --color-faint: #7a6c58;
+  --color-accent: #c45c3a;
+  --color-accent-fg: #14110e;
+  --color-border: #3a3228;
+  --color-ok: #7a8f5a;
+  --color-sky: #c4a882;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-quick: 150ms;
+  --motion-fast: 250ms;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100%;
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+
+  body {
+    font-family: var(--font-sans);
+    overscroll-behavior: none;
+  }
+}
+
+.cinematic-veil {
+  background: linear-gradient(
+    to top,
+    var(--color-bg) 0%,
+    color-mix(in oklab, var(--color-bg) 72%, transparent) 36%,
+    color-mix(in oklab, var(--color-bg) 18%, transparent) 68%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+.cine-overlay {
+  animation: cine-in var(--motion-fast) var(--ease-out);
+}
+
+@keyframes cine-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
